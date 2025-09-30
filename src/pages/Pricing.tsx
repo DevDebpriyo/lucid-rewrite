@@ -9,7 +9,7 @@ const Pricing = () => {
     {
       name: "Free",
       price: "$0",
-      description: "Perfect for trying out NaturalWrite",
+      description: "Perfect for trying out AuthentiText",
       features: [
         "1,000 words per month",
         "Basic AI detection",

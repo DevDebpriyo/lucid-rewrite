@@ -4,9 +4,13 @@ import { Footer } from "@/components/Footer";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Sparkles, Shield, Zap, CheckCircle, ArrowRight } from "lucide-react";
+import { useScrollAnimation } from "@/hooks/use-scroll-animation";
 import heroImage from "@/assets/hero-bg.jpg";
 
 const Landing = () => {
+  const featuresAnimation = useScrollAnimation({ threshold: 0.2 });
+  const ctaAnimation = useScrollAnimation({ threshold: 0.3 });
+
   return (
     <div className="min-h-screen flex flex-col">
       <Header />
@@ -80,7 +84,14 @@ const Landing = () => {
             </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+          <div
+            ref={featuresAnimation.elementRef}
+            className={`grid grid-cols-1 md:grid-cols-3 gap-8 transition-all duration-700 ${
+              featuresAnimation.isVisible
+                ? "opacity-100 translate-y-0"
+                : "opacity-0 translate-y-10"
+            }`}
+          >
             <Card className="shadow-medium hover:shadow-strong transition-all duration-300">
               <CardHeader>
                 <div className="w-12 h-12 rounded-lg gradient-primary flex items-center justify-center mb-4">
@@ -126,21 +137,30 @@ const Landing = () => {
       {/* CTA Section */}
       <section className="py-20">
         <div className="container mx-auto px-4">
-          <Card className="gradient-primary text-primary-foreground shadow-strong">
-            <CardContent className="p-12 text-center space-y-6">
-              <h2 className="text-4xl font-bold">Ready to Get Started?</h2>
-              <p className="text-lg opacity-90 max-w-2xl mx-auto">
-                Join thousands of writers, students, and professionals who trust NaturalWrite
-                to transform their AI-generated content.
-              </p>
-              <Link to="/dashboard">
-                <Button size="lg" variant="secondary" className="text-lg px-8">
-                  Start Analyzing Now
-                  <ArrowRight className="ml-2 h-5 w-5" />
-                </Button>
-              </Link>
-            </CardContent>
-          </Card>
+          <div
+            ref={ctaAnimation.elementRef}
+            className={`transition-all duration-700 ${
+              ctaAnimation.isVisible
+                ? "opacity-100 scale-100"
+                : "opacity-0 scale-95"
+            }`}
+          >
+            <Card className="gradient-primary text-primary-foreground shadow-strong">
+              <CardContent className="p-12 text-center space-y-6">
+                <h2 className="text-4xl font-bold">Ready to Get Started?</h2>
+                <p className="text-lg opacity-90 max-w-2xl mx-auto">
+                  Join thousands of writers, students, and professionals who trust AuthentiText
+                  to transform their AI-generated content.
+                </p>
+                <Link to="/dashboard">
+                  <Button size="lg" variant="secondary" className="text-lg px-8">
+                    Start Analyzing Now
+                    <ArrowRight className="ml-2 h-5 w-5" />
+                  </Button>
+                </Link>
+              </CardContent>
+            </Card>
+          </div>
         </div>
       </section>
 

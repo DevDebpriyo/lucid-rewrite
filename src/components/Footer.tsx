@@ -12,7 +12,7 @@ export const Footer = () => {
                 <Sparkles className="h-4 w-4 text-primary-foreground" />
               </div>
               <span className="font-bold bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
-                NaturalWrite
+                AuthentiText
               </span>
             </div>
             <p className="text-sm text-muted-foreground">
@@ -70,7 +70,7 @@ export const Footer = () => {
         </div>
 
         <div className="mt-8 pt-8 border-t text-center text-sm text-muted-foreground">
-          © {new Date().getFullYear()} NaturalWrite. All rights reserved.
+          © {new Date().getFullYear()} AuthentiText. All rights reserved.
         </div>
       </div>
     </footer>
