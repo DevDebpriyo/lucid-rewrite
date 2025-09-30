@@ -1,5 +1,3 @@
-Here's a comprehensive `README.md` file for your GitHub repository:
-
 ```markdown
 # AI Content Detector & Rewriter
 
@@ -155,7 +153,6 @@ If you need help with:
 
 ## 🙏 Acknowledgments
 
-- Inspired by NaturalWrite.com
 - Built with modern web technologies
 - Thanks to all our contributors and testers
 
@@ -163,7 +160,6 @@ If you need help with:
 
 **Note**: This is a frontend implementation. Backend API integration and ML model connections are required for full functionality. See our [Development Roadmap](docs/ROADMAP.md) for upcoming features.
 
-```
 
 This README includes:
 
@@ -177,3 +173,6 @@ This README includes:
 - **Support resources**
 
 You can customize the repository links, add your actual deployment URL, and include any additional specific information about your implementation.
+
+```
+
