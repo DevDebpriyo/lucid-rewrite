@@ -21,7 +21,7 @@ export interface MeResponse {
   user: User;
 }
 
-const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:5000/api";
+const API_URL = import.meta.env.VITE_API_URL ?? "https://airewrite-backend.onrender.com";
 
 let accessToken: string | null = null;
 
