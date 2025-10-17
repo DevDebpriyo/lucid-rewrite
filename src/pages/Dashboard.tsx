@@ -8,6 +8,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sparkles, Copy, Download, RefreshCw } from "lucide-react";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 
 const Dashboard = () => {
@@ -23,6 +25,44 @@ const Dashboard = () => {
   const [plagUrls, setPlagUrls] = useState<string[]>([]);
   const [rephrasedText, setRephrasedText] = useState("");
   const [rephraseMode, setRephraseMode] = useState<"simple" | "advanced">("simple");
+  const [advOptions, setAdvOptions] = useState<Array<{ sentence: string; options: string[] }> | null>(null);
+  const [advSelection, setAdvSelection] = useState<Record<number, number>>({});
+
+  // Parse the Gradio result string into structured sentence options
+  const parseAdvancedOptions = (raw: unknown): Array<{ sentence: string; options: string[] }> => {
+    let textBlob = "";
+    if (typeof raw === "string") {
+      textBlob = raw;
+    } else if (Array.isArray(raw) && typeof raw[0] === "string") {
+      textBlob = raw[0] as string;
+    } else {
+      return [];
+    }
+    // Normalize newlines
+    const normalized = textBlob.replace(/\r\n?/g, "\n");
+    // Split by blank lines to get blocks per sentence
+    const blocks = normalized
+      .split(/\n\s*\n+/)
+      .map((b) => b.trim())
+      .filter(Boolean);
+
+    const results: Array<{ sentence: string; options: string[] }> = [];
+    for (const block of blocks) {
+      const lines = block.split("\n").map((l) => l.trim()).filter(Boolean);
+      if (!lines.length) continue;
+      const sentenceMatch = lines[0].match(/^Sentence\s*\d+\s*:\s*(.+)$/i);
+      const sentence = sentenceMatch ? sentenceMatch[1].trim() : lines[0];
+      const options: string[] = [];
+      for (const line of lines.slice(1)) {
+        const m = line.match(/^Option\s*\d+\s*:\s*(.+)$/i);
+        if (m && m[1]) options.push(m[1].trim());
+      }
+      if (options.length) {
+        results.push({ sentence, options });
+      }
+    }
+    return results;
+  };
 
   const handleAnalyze = async () => {
     // choose the text to analyze based on active tab
@@ -126,34 +166,85 @@ const Dashboard = () => {
 
     setAnalyzing(true);
     try {
-      const res = await fetch("/api/model/rephrase", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: inputText }),
-      });
-
-      if (!res.ok) {
-        const text = await res.text().catch(() => "");
-        throw new Error(`Rephrase API error (${res.status}): ${text || res.statusText}`);
-      }
-
-      const json: { ok?: boolean; data?: unknown } = await res.json();
-      if (json && json.ok && Array.isArray(json.data) && typeof json.data[0] === "string") {
-        setRephrasedText(json.data[0]);
-      } else if (json && typeof (json as any).data === "string") {
-        setRephrasedText((json as any).data as string);
+      if (rephraseMode === "advanced") {
+        // Fetch per-sentence options
+        const res = await fetch("/api/model/rephrase-options", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: inputText }),
+        });
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          console.error("Rephrase Options API failed:", res.status, text);
+          toast.error(`Rephrase Options API error (${res.status}): ${text || res.statusText}`);
+          setAnalyzing(false);
+          return;
+        }
+        const json: { ok?: boolean; data?: unknown } = await res.json();
+        if (!json || json.ok !== true) {
+          console.error("Rephrase options returned non-ok:", json);
+          toast.error(`Rephrase Options API returned error: ${(json as any)?.error || JSON.stringify(json)}`);
+          setAnalyzing(false);
+          return;
+        }
+        const parsed = parseAdvancedOptions((json as any).data);
+        if (!parsed.length) {
+          console.error("Parsed options empty, raw data:", (json as any).data);
+          toast.error("Could not parse rephrase options from response");
+          setAnalyzing(false);
+          return;
+        }
+        setAdvOptions(parsed);
+        setAdvSelection({});
+        setRephrasedText("");
+        setActiveTab("rephrase");
+        toast.success("Options fetched. Select one per sentence.");
       } else {
-        throw new Error("Unexpected rephrase response format");
+        // Simple mode
+        const res = await fetch("/api/model/rephrase", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: inputText }),
+        });
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          console.error("Rephrase API failed:", res.status, text);
+          toast.error(`Rephrase API error (${res.status}): ${text || res.statusText}`);
+          setAnalyzing(false);
+          return;
+        }
+        const json: { ok?: boolean; data?: unknown } = await res.json();
+        if (json && json.ok && Array.isArray(json.data) && typeof json.data[0] === "string") {
+          setRephrasedText(json.data[0]);
+        } else if (json && typeof (json as any).data === "string") {
+          setRephrasedText((json as any).data as string);
+        } else {
+          throw new Error("Unexpected rephrase response format");
+        }
+        setActiveTab("rephrase");
+        toast.success("Text rephrased successfully!");
       }
-
-      setActiveTab("rephrase");
-      toast.success("Text rephrased successfully!");
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unexpected error during rephrase";
       toast.error(message);
     } finally {
       setAnalyzing(false);
     }
+  };
+
+  const applyAdvancedSelection = () => {
+    if (!advOptions || !advOptions.length) return;
+    const missing = advOptions.some((_, i) => advSelection[i] === undefined);
+    if (missing) {
+      toast.error("Please select one option for each sentence");
+      return;
+    }
+    const combined = advOptions
+      .map((s, i) => s.options[advSelection[i]] || "")
+      .join(" ")
+      .trim();
+    setRephrasedText(combined);
+    toast.success("Combined rephrased text ready");
   };
 
   const handleCopy = (text: string) => {
@@ -249,10 +340,48 @@ const Dashboard = () => {
                   <TextEditor
                     value={rephrasedText}
                     onChange={setRephrasedText}
-                    placeholder="Rephrased text will appear here..."
+                    placeholder={advOptions?.length ? "Select options below and click Apply" : "Rephrased text will appear here..."}
                     title="Rephrased"
                   />
                 </div>
+
+                {advOptions?.length ? (
+                  <Card className="mt-4">
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-lg">Advanced Options</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      {advOptions.map((item, idx) => (
+                        <div key={idx} className="space-y-2">
+                          <p className="text-sm font-medium">Sentence {idx + 1}</p>
+                          <p className="text-sm text-muted-foreground">{item.sentence}</p>
+                          <RadioGroup
+                            value={advSelection[idx]?.toString() ?? ""}
+                            onValueChange={(val) =>
+                              setAdvSelection((prev) => ({ ...prev, [idx]: Number(val) }))
+                            }
+                            className="mt-2 space-y-1"
+                          >
+                            {item.options.map((opt, oidx) => (
+                              <div key={oidx} className="flex items-center space-x-2">
+                                <RadioGroupItem value={String(oidx)} id={`s${idx}-o${oidx}`} />
+                                <Label htmlFor={`s${idx}-o${oidx}`} className="text-sm leading-snug">
+                                  {opt}
+                                </Label>
+                              </div>
+                            ))}
+                          </RadioGroup>
+                        </div>
+                      ))}
+
+                      <div className="flex justify-end">
+                        <Button onClick={applyAdvancedSelection} disabled={analyzing} variant="secondary">
+                          Apply Selection
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ) : null}
               </TabsContent>
             </Tabs>
 
