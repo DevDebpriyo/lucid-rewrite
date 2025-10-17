@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Header } from "@/components/Header";
 import { Footer } from "@/components/Footer";
 import { TextEditor } from "@/components/TextEditor";
@@ -17,21 +17,89 @@ const Dashboard = () => {
   const [analyzing, setAnalyzing] = useState(false);
   const [tone, setTone] = useState("professional");
   const [activeTab, setActiveTab] = useState("analyze");
+  const [aiLabel, setAiLabel] = useState<string | null>(null);
+  const [aiComponents, setAiComponents] = useState<Record<string, number> | null>(null);
+  const [plagScore, setPlagScore] = useState<number | null>(null);
+  const [plagUrls, setPlagUrls] = useState<string[]>([]);
+  const [rephrasedText, setRephrasedText] = useState("");
+  const [rephraseMode, setRephraseMode] = useState<"simple" | "advanced">("simple");
 
-  const handleAnalyze = () => {
-    if (!inputText.trim()) {
+  const handleAnalyze = async () => {
+    // choose the text to analyze based on active tab
+    const textToAnalyze =
+      activeTab === "rewrite" ? rewrittenText : activeTab === "rephrase" ? rephrasedText : inputText;
+
+    if (!textToAnalyze.trim()) {
       toast.error("Please enter some text to analyze");
       return;
     }
 
     setAnalyzing(true);
-    // Simulate analysis
-    setTimeout(() => {
-      const randomScore = Math.floor(Math.random() * 100);
-      setDetectionScore(randomScore);
-      setAnalyzing(false);
+    try {
+      // Call both AI detection and plagiarism APIs in parallel
+  const aiEndpoint = "/api/ai/detect";
+  const plagEndpoint = "/api/plag/check_plagiarism"; // proxied via Vite dev server
+
+      const aiReq = fetch(aiEndpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: textToAnalyze }),
+      }).then(async (res) => {
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          throw new Error(`AI detection API error (${res.status}): ${text || res.statusText}`);
+        }
+        return res.json() as Promise<{
+          final_score: number;
+          label?: string;
+          components?: Record<string, number>;
+        }>;
+      });
+
+      const plagReq = fetch(plagEndpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: textToAnalyze }),
+      }).then(async (res) => {
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          throw new Error(`Plagiarism API error (${res.status}): ${text || res.statusText}`);
+        }
+        return res.json() as Promise<{
+          score?: number;
+          urls?: string[];
+        }>;
+      });
+
+      const [aiRes, plagRes] = await Promise.allSettled([aiReq, plagReq]);
+
+      // Handle AI detection result
+      if (aiRes.status === "fulfilled") {
+        const { final_score, label, components } = aiRes.value;
+        const scorePct = Math.max(0, Math.min(100, Math.round((final_score ?? 0) * 100)));
+        setDetectionScore(scorePct);
+        setAiLabel(label ?? null);
+        setAiComponents(components ?? null);
+      } else {
+        toast.error(aiRes.reason?.message || "Failed to get AI detection score");
+      }
+
+      // Handle plagiarism result
+      if (plagRes.status === "fulfilled") {
+        const { score, urls } = plagRes.value;
+        setPlagScore(typeof score === "number" ? Math.round(score) : null);
+        setPlagUrls(Array.isArray(urls) ? urls : []);
+      } else {
+        toast.error(plagRes.reason?.message || "Failed to get plagiarism score");
+      }
+
       toast.success("Analysis complete!");
-    }, 2000);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unexpected error during analysis";
+      toast.error(message);
+    } finally {
+      setAnalyzing(false);
+    }
   };
 
   const handleRewrite = () => {
@@ -50,10 +118,77 @@ const Dashboard = () => {
     }, 2000);
   };
 
+  const handleRephrase = async () => {
+    if (!inputText.trim()) {
+      toast.error("Please enter some text to rephrase");
+      return;
+    }
+
+    setAnalyzing(true);
+    try {
+      const res = await fetch("/api/model/rephrase", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: inputText }),
+      });
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(`Rephrase API error (${res.status}): ${text || res.statusText}`);
+      }
+
+      const json: { ok?: boolean; data?: unknown } = await res.json();
+      if (json && json.ok && Array.isArray(json.data) && typeof json.data[0] === "string") {
+        setRephrasedText(json.data[0]);
+      } else if (json && typeof (json as any).data === "string") {
+        setRephrasedText((json as any).data as string);
+      } else {
+        throw new Error("Unexpected rephrase response format");
+      }
+
+      setActiveTab("rephrase");
+      toast.success("Text rephrased successfully!");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unexpected error during rephrase";
+      toast.error(message);
+    } finally {
+      setAnalyzing(false);
+    }
+  };
+
   const handleCopy = (text: string) => {
     navigator.clipboard.writeText(text);
     toast.success("Copied to clipboard!");
   };
+
+  const handleDownload = () => {
+    const text = activeTab === "analyze" ? inputText : activeTab === "rewrite" ? rewrittenText : rephrasedText;
+    if (!text.trim()) {
+      toast.error("Nothing to download");
+      return;
+    }
+    const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download =
+      activeTab === "analyze"
+        ? "analysis-input.txt"
+        : activeTab === "rewrite"
+        ? "rewritten-text.txt"
+        : "rephrased-text.txt";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const formattedComponents = useMemo(() => {
+    if (!aiComponents) return [] as Array<{ key: string; value: number }>;
+    return Object.entries(aiComponents)
+      .map(([k, v]) => ({ key: k, value: Math.round((v ?? 0) * 100) }))
+      .sort((a, b) => b.value - a.value);
+  }, [aiComponents]);
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -71,9 +206,10 @@ const Dashboard = () => {
           {/* Main Content Area */}
           <div className="lg:col-span-2 space-y-6">
             <Tabs value={activeTab} onValueChange={setActiveTab}>
-              <TabsList className="grid w-full grid-cols-2">
+              <TabsList className="grid w-full grid-cols-3">
                 <TabsTrigger value="analyze">Analyze</TabsTrigger>
                 <TabsTrigger value="rewrite">Rewrite</TabsTrigger>
+                <TabsTrigger value="rephrase">Rephrase</TabsTrigger>
               </TabsList>
 
               <TabsContent value="analyze" className="mt-6">
@@ -92,13 +228,29 @@ const Dashboard = () => {
                     onChange={setInputText}
                     placeholder="Original text..."
                     title="Original"
-                    readOnly
                   />
                   <TextEditor
                     value={rewrittenText}
                     onChange={setRewrittenText}
                     placeholder="Rewritten text will appear here..."
                     title="Rewritten"
+                  />
+                </div>
+              </TabsContent>
+
+              <TabsContent value="rephrase" className="mt-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <TextEditor
+                    value={inputText}
+                    onChange={setInputText}
+                    placeholder="Original text..."
+                    title="Original"
+                  />
+                  <TextEditor
+                    value={rephrasedText}
+                    onChange={setRephrasedText}
+                    placeholder="Rephrased text will appear here..."
+                    title="Rephrased"
                   />
                 </div>
               </TabsContent>
@@ -128,38 +280,67 @@ const Dashboard = () => {
                   )}
                 </Button>
 
-                <div className="flex items-center gap-2">
-                  <Select value={tone} onValueChange={setTone}>
-                    <SelectTrigger className="w-[150px]">
-                      <SelectValue placeholder="Select tone" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="professional">Professional</SelectItem>
-                      <SelectItem value="casual">Casual</SelectItem>
-                      <SelectItem value="creative">Creative</SelectItem>
-                      <SelectItem value="academic">Academic</SelectItem>
-                    </SelectContent>
-                  </Select>
+                {activeTab === "rewrite" && (
+                  <div className="flex items-center gap-2">
+                    <Select value={tone} onValueChange={setTone}>
+                      <SelectTrigger className="w-[150px]">
+                        <SelectValue placeholder="Select tone" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="professional">Professional</SelectItem>
+                        <SelectItem value="casual">Casual</SelectItem>
+                        <SelectItem value="creative">Creative</SelectItem>
+                        <SelectItem value="academic">Academic</SelectItem>
+                      </SelectContent>
+                    </Select>
 
-                  <Button
-                    onClick={handleRewrite}
-                    disabled={analyzing}
-                    variant="secondary"
-                  >
-                    <RefreshCw className="mr-2 h-4 w-4" />
-                    Rewrite
-                  </Button>
-                </div>
+                    <Button
+                      onClick={handleRewrite}
+                      disabled={analyzing}
+                      variant="secondary"
+                    >
+                      <RefreshCw className="mr-2 h-4 w-4" />
+                      Rewrite
+                    </Button>
+                  </div>
+                )}
+
+                {activeTab === "rephrase" && (
+                  <div className="flex items-center gap-2">
+                    <Select value={rephraseMode} onValueChange={(v) => setRephraseMode(v as any)}>
+                      <SelectTrigger className="w-[150px]">
+                        <SelectValue placeholder="Rephrase mode" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="simple">Simple</SelectItem>
+                        <SelectItem value="advanced">Advanced</SelectItem>
+                      </SelectContent>
+                    </Select>
+
+                    <Button onClick={handleRephrase} disabled={analyzing} variant="secondary">
+                      <RefreshCw className="mr-2 h-4 w-4" />
+                      Rephrase
+                    </Button>
+                  </div>
+                )}
 
                 <div className="ml-auto flex gap-2">
                   <Button
                     variant="outline"
                     size="icon"
-                    onClick={() => handleCopy(activeTab === "analyze" ? inputText : rewrittenText)}
+                    onClick={() =>
+                      handleCopy(
+                        activeTab === "analyze"
+                          ? inputText
+                          : activeTab === "rewrite"
+                          ? rewrittenText
+                          : rephrasedText
+                      )
+                    }
                   >
                     <Copy className="h-4 w-4" />
                   </Button>
-                  <Button variant="outline" size="icon">
+                  <Button variant="outline" size="icon" onClick={handleDownload}>
                     <Download className="h-4 w-4" />
                   </Button>
                 </div>
@@ -170,6 +351,76 @@ const Dashboard = () => {
           {/* Sidebar */}
           <div className="space-y-6">
             <DetectionScore score={detectionScore} analyzing={analyzing} />
+
+            {/* AI Model Details */}
+            <Card className="shadow-medium">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-lg">AI Model Insights</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3 text-sm">
+                <div>
+                  <span className="text-muted-foreground">Label: </span>
+                  <span className="font-medium">
+                    {analyzing ? "--" : aiLabel ?? "N/A"}
+                  </span>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-muted-foreground">Model components</p>
+                  {analyzing ? (
+                    <p className="text-xs text-muted-foreground">Analyzing...</p>
+                  ) : formattedComponents.length ? (
+                    <ul className="space-y-1">
+                      {formattedComponents.map((c) => (
+                        <li key={c.key} className="flex justify-between text-xs">
+                          <span className="capitalize">{c.key.replace(/[-_]/g, " ")}</span>
+                          <span className="font-medium">{c.value}%</span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">No component data</p>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Plagiarism Results */}
+            <Card className="shadow-medium">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-lg">Plagiarism Check</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="flex items-end gap-2">
+                  <span className="text-3xl font-bold">
+                    {analyzing ? "--" : plagScore !== null ? `${plagScore}` : "--"}
+                  </span>
+                  <span className="text-muted-foreground mb-1">/ 100</span>
+                </div>
+                <div className="space-y-2">
+                  <p className="text-sm text-muted-foreground">Matching sources</p>
+                  {analyzing ? (
+                    <p className="text-xs text-muted-foreground">Analyzing...</p>
+                  ) : plagUrls.length ? (
+                    <ul className="list-disc pl-4 space-y-1 text-xs break-all">
+                      {plagUrls.map((u, idx) => (
+                        <li key={`${u}-${idx}`}>
+                          <a
+                            href={u}
+                            target="_blank"
+                            rel="noreferrer noopener"
+                            className="text-primary hover:underline"
+                          >
+                            {u}
+                          </a>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">No matches found</p>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
 
             <Card className="shadow-medium">
               <CardHeader className="pb-3">

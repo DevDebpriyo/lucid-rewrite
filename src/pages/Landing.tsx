@@ -47,7 +47,7 @@ const Landing = () => {
             </p>
 
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-              <Link to="/dashboard">
+              <Link to="/sign-up?next=/dashboard">
                 <Button size="lg" className="gradient-primary text-lg px-8 shadow-strong">
                   Get Started Free
                   <ArrowRight className="ml-2 h-5 w-5" />
