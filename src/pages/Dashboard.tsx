@@ -12,6 +12,47 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 
+// Service base URLs (prod-ready via env) and sensible dev fallbacks via Vite proxies
+const isDev = import.meta.env.DEV;
+
+// Model/backend API (our server) — preferred envs
+const rawModelBase =
+  (import.meta.env.VITE_API_URL as string | undefined) ??
+  (import.meta.env.NEXT_PUBLIC_BACKEND_URL as string | undefined) ??
+  "";
+const MODEL_BASE = rawModelBase.replace(/\/$/, "");
+
+// External services — allow separate envs for production
+const AI_BASE = (import.meta.env.VITE_AI_API_URL as string | undefined)?.replace(/\/$/, "");
+const PLAG_BASE = (import.meta.env.VITE_PLAG_API_URL as string | undefined)?.replace(/\/$/, "");
+
+const normalizePath = (path: string) => (path.startsWith("/") ? path : `/${path}`);
+
+const buildAiUrl = (path: string) => {
+  const p = normalizePath(path);
+  if (AI_BASE) return `${AI_BASE}${p}`;
+  // In dev, use Vite proxy at /api/ai
+  if (isDev) return `/api/ai${p}`;
+  // Fallback (prod without env) — will likely need VITE_AI_API_URL set
+  return `/api/ai${p}`;
+};
+
+const buildPlagUrl = (path: string) => {
+  const p = normalizePath(path);
+  if (PLAG_BASE) return `${PLAG_BASE}${p}`;
+  if (isDev) return `/api/plag${p}`;
+  return `/api/plag${p}`;
+};
+
+const buildModelUrl = (path: string) => {
+  const p = normalizePath(path);
+  if (MODEL_BASE) return `${MODEL_BASE}${p}`;
+  // In dev, use local proxy at /api/model
+  if (isDev) return `/api/model${p}`;
+  // As a last resort, try the raw path (assumes same-origin routing)
+  return p;
+};
+
 const Dashboard = () => {
   const [inputText, setInputText] = useState("");
   const [rewrittenText, setRewrittenText] = useState("");
@@ -77,8 +118,8 @@ const Dashboard = () => {
     setAnalyzing(true);
     try {
       // Call both AI detection and plagiarism APIs in parallel
-  const aiEndpoint = "/api/ai/detect";
-  const plagEndpoint = "/api/plag/check_plagiarism"; // proxied via Vite dev server
+      const aiEndpoint = buildAiUrl("/detect");
+      const plagEndpoint = buildPlagUrl("/check_plagiarism");
 
       const aiReq = fetch(aiEndpoint, {
         method: "POST",
@@ -167,8 +208,8 @@ const Dashboard = () => {
     setAnalyzing(true);
     try {
       if (rephraseMode === "advanced") {
-        // Fetch per-sentence options
-        const res = await fetch("/api/model/rephrase-options", {
+  // Fetch per-sentence options
+  const res = await fetch(buildModelUrl("/model/rephrase-options"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ text: inputText }),
@@ -200,8 +241,8 @@ const Dashboard = () => {
         setActiveTab("rephrase");
         toast.success("Options fetched. Select one per sentence.");
       } else {
-        // Simple mode
-        const res = await fetch("/api/model/rephrase", {
+  // Simple mode
+  const res = await fetch(buildModelUrl("/model/rephrase"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ text: inputText }),
