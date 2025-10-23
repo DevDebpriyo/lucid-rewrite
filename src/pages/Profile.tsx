@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -6,12 +6,52 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/context/AuthContext";
-import { User, Mail, Lock, Shield, CreditCard, LogOut, LayoutDashboard, DollarSign } from "lucide-react";
+import { User as UserIcon, Mail, Lock, Shield, CreditCard, LogOut, LayoutDashboard, DollarSign, CheckCircle2 } from "lucide-react";
+import { useEffect, useMemo } from "react";
+import { useToast } from "@/components/ui/use-toast";
 
 export default function Profile() {
-  const { user, signOut } = useAuth();
+  const { user, signOut, refreshUser } = useAuth();
+  const { toast } = useToast();
+  const [params] = useSearchParams();
 
   if (!user) return null;
+
+  // Derive dynamic fields from backend user payload (with graceful fallbacks)
+  const derived = useMemo(() => {
+    const u: any = user as any;
+    const createdRaw = u?.createdAt || u?.created_at || u?.createdOn || u?.created_on;
+    const createdDate = createdRaw ? new Date(createdRaw) : null;
+    const memberSince = createdDate && !isNaN(createdDate.getTime())
+      ? createdDate.toLocaleDateString(undefined, { year: "numeric", month: "long" })
+      : undefined;
+
+    const planName = u?.plan?.name || u?.subscription?.plan?.name || u?.subscriptionPlan || u?.plan || "Free";
+    const subStatus = (u?.subscription?.status || u?.subscriptionStatus || "inactive").toString();
+    const emailVerified = Boolean(u?.emailVerified || u?.email_verified || u?.verified);
+
+    return { memberSince, planName, subStatus, emailVerified };
+  }, [user]);
+
+  // If redirected back from checkout, refresh user and show status
+  useEffect(() => {
+    const subId = params.get("subscription_id");
+    const status = params.get("status");
+    if (subId || status) {
+      (async () => {
+        try {
+          await refreshUser();
+          if (status === "active") {
+            toast({ title: "Subscription activated", description: "Your subscription is now active." });
+          } else if (status) {
+            toast({ title: "Subscription update", description: `Status: ${status}` });
+          }
+        } catch {
+          // ignore
+        }
+      })();
+    }
+  }, [params, refreshUser, toast]);
 
   return (
     <div className="min-h-screen bg-muted/30">
@@ -45,13 +85,13 @@ export default function Profile() {
               <CardHeader className="items-center text-center pb-4">
                 <div className="relative">
                   <Avatar className="h-24 w-24 border-4 border-background shadow-lg">
-                    <AvatarImage src={user.avatar} />
+                    <AvatarImage src={(user as any).avatar} />
                     <AvatarFallback className="text-2xl font-semibold bg-gradient-to-br from-primary to-secondary text-primary-foreground">
                       {user.name?.[0]?.toUpperCase() ?? "U"}
                     </AvatarFallback>
                   </Avatar>
                   <Badge className="absolute bottom-0 right-0 border-2 border-background" variant="secondary">
-                    Free
+                    {derived.planName || "Free"}
                   </Badge>
                 </div>
                 <div className="mt-4 space-y-1">
@@ -62,12 +102,22 @@ export default function Profile() {
               <Separator />
               <CardContent className="pt-6 space-y-3">
                 <div className="flex items-center gap-3 text-sm">
-                  <User className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-muted-foreground">Member since 2025</span>
+                  <UserIcon className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-muted-foreground">
+                    Member since {derived.memberSince || "—"}
+                  </span>
                 </div>
                 <div className="flex items-center gap-3 text-sm">
                   <Shield className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-muted-foreground">Account verified</span>
+                  <span className="text-muted-foreground flex items-center gap-1">
+                    {derived.emailVerified ? (
+                      <>
+                        <CheckCircle2 className="h-4 w-4 text-green-500" /> Verified
+                      </>
+                    ) : (
+                      "Not verified"
+                    )}
+                  </span>
                 </div>
                 <Separator className="my-4" />
                 <Button 
@@ -92,7 +142,7 @@ export default function Profile() {
                 <Tabs defaultValue="profile" className="w-full">
                   <TabsList className="grid w-full grid-cols-3 lg:w-auto">
                     <TabsTrigger value="profile" className="gap-2">
-                      <User className="h-4 w-4" />
+                      <UserIcon className="h-4 w-4" />
                       <span className="hidden sm:inline">Profile</span>
                     </TabsTrigger>
                     <TabsTrigger value="security" className="gap-2">
@@ -109,7 +159,7 @@ export default function Profile() {
                     <Card className="border-muted">
                       <CardHeader>
                         <div className="flex items-center gap-2">
-                          <User className="h-5 w-5 text-primary" />
+                          <UserIcon className="h-5 w-5 text-primary" />
                           <CardTitle>Profile details</CardTitle>
                         </div>
                         <CardDescription>Basic information about your account</CardDescription>
@@ -118,7 +168,7 @@ export default function Profile() {
                       <CardContent className="pt-6">
                         <div className="space-y-4">
                           <div className="flex items-center gap-4 p-3 rounded-lg bg-muted/50">
-                            <User className="h-5 w-5 text-muted-foreground" />
+                            <UserIcon className="h-5 w-5 text-muted-foreground" />
                             <div className="flex-1">
                               <p className="text-sm font-medium text-muted-foreground">Name</p>
                               <p className="text-base font-semibold">{user.name}</p>
@@ -202,17 +252,22 @@ export default function Profile() {
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                           <div>
                             <div className="flex items-center gap-2 mb-2">
-                              <Badge variant="secondary">Free Plan</Badge>
+                              <Badge variant="secondary">{derived.planName || "Free"}</Badge>
+                              <Badge variant={derived.subStatus === "active" ? "default" : "outline"}>
+                                {derived.subStatus}
+                              </Badge>
                             </div>
-                            <p className="font-medium">You are currently on the free plan</p>
+                            <p className="font-medium">Current plan: {derived.planName || "Free"}</p>
                             <p className="text-sm text-muted-foreground mt-1">
-                              Upgrade to unlock premium features and benefits
+                              {derived.subStatus === "active"
+                                ? "Your subscription is active."
+                                : "Upgrade to unlock premium features and benefits"}
                             </p>
                           </div>
                           <Link to="/pricing">
                             <Button className="gap-2">
                               <DollarSign className="h-4 w-4" />
-                              View plans
+                              {derived.subStatus === "active" ? "Manage plan" : "View plans"}
                             </Button>
                           </Link>
                         </div>
