@@ -20,17 +20,63 @@ export default function Profile() {
   // Derive dynamic fields from backend user payload (with graceful fallbacks)
   const derived = useMemo(() => {
     const u: any = user as any;
-    const createdRaw = u?.createdAt || u?.created_at || u?.createdOn || u?.created_on;
+    const createdRaw = u?.createdAt || u?.created_at || u?.createdOn || u?.created_on || u?.joinedAt || u?.signupDate;
     const createdDate = createdRaw ? new Date(createdRaw) : null;
     const memberSince = createdDate && !isNaN(createdDate.getTime())
       ? createdDate.toLocaleDateString(undefined, { year: "numeric", month: "long" })
       : undefined;
 
-    const planName = u?.plan?.name || u?.subscription?.plan?.name || u?.subscriptionPlan || u?.plan || "Free";
-    const subStatus = (u?.subscription?.status || u?.subscriptionStatus || "inactive").toString();
-    const emailVerified = Boolean(u?.emailVerified || u?.email_verified || u?.verified);
+    // Gather plan details
+    const planNameRaw =
+      u?.subscription?.plan?.name ||
+      u?.plan?.name ||
+      u?.membership?.plan?.name ||
+      u?.subscriptionPlan ||
+      u?.planName ||
+      u?.currentPlan ||
+      u?.plan ||
+      "";
+    const subStatus = (
+      u?.subscription?.status ||
+      u?.membership?.status ||
+      u?.subscriptionStatus ||
+      (u?.isSubscribed ? "active" : null) ||
+      "inactive"
+    ).toString();
+    const emailVerified = Boolean(u?.emailVerified || u?.email_verified || u?.verified || u?.isVerified);
 
-    return { memberSince, planName, subStatus, emailVerified };
+    const intervalRaw =
+      u?.subscription?.plan?.interval ||
+      u?.subscription?.interval ||
+      u?.billingInterval ||
+      u?.subscriptionInterval ||
+      u?.interval ||
+      null;
+  let interval = intervalRaw ? String(intervalRaw).toLowerCase() : undefined;
+  const price = u?.subscription?.plan?.price ?? u?.plan?.price ?? u?.membership?.plan?.price ?? undefined;
+
+    // If subscription is active and plan name missing, infer from interval
+    let planName = planNameRaw as string;
+    if ((!planName || planName.toLowerCase() === "free") && subStatus === "active") {
+      // Prefer interval
+      if (interval) {
+        if (interval === "month" || interval === "monthly") planName = "Monthly";
+        if (interval === "year" || interval === "yearly" || interval === "annual") planName = "Yearly";
+      } else if (price != null) {
+        // Fallback: infer from known price points
+        if (Number(price) === 29) {
+          planName = "Monthly";
+          interval = interval || "month";
+        }
+        if (Number(price) === 289) {
+          planName = "Yearly";
+          interval = interval || "year";
+        }
+      }
+    }
+    if (!planName) planName = "Free";
+
+    return { memberSince, planName, subStatus, emailVerified, interval, price };
   }, [user]);
 
   // If redirected back from checkout, refresh user and show status
@@ -52,6 +98,24 @@ export default function Profile() {
       })();
     }
   }, [params, refreshUser, toast]);
+
+  // Always refresh once on mount to ensure the latest user data
+  useEffect(() => {
+    (async () => {
+      try {
+        await refreshUser();
+      } catch {
+        // ignore
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Dev-only: log the raw user payload to help diagnose mapping issues
+  if (import.meta.env.MODE !== "production") {
+    // eslint-disable-next-line no-console
+    console.debug("[Profile] user payload", user);
+  }
 
   return (
     <div className="min-h-screen bg-muted/30">
@@ -90,9 +154,6 @@ export default function Profile() {
                       {user.name?.[0]?.toUpperCase() ?? "U"}
                     </AvatarFallback>
                   </Avatar>
-                  <Badge className="absolute bottom-0 right-0 border-2 border-background" variant="secondary">
-                    {derived.planName || "Free"}
-                  </Badge>
                 </div>
                 <div className="mt-4 space-y-1">
                   <CardTitle className="text-xl">{user.name}</CardTitle>
@@ -107,7 +168,7 @@ export default function Profile() {
                     Member since {derived.memberSince || "—"}
                   </span>
                 </div>
-                <div className="flex items-center gap-3 text-sm">
+                {/* <div className="flex items-center gap-3 text-sm">
                   <Shield className="h-4 w-4 text-muted-foreground" />
                   <span className="text-muted-foreground flex items-center gap-1">
                     {derived.emailVerified ? (
@@ -118,7 +179,7 @@ export default function Profile() {
                       "Not verified"
                     )}
                   </span>
-                </div>
+                </div> */}
                 <Separator className="my-4" />
                 <Button 
                   variant="outline" 
@@ -243,34 +304,146 @@ export default function Profile() {
                       <CardHeader>
                         <div className="flex items-center gap-2">
                           <CreditCard className="h-5 w-5 text-primary" />
-                          <CardTitle>Subscription</CardTitle>
+                          <CardTitle>Subscription & Billing</CardTitle>
                         </div>
-                        <CardDescription>Manage your plan and billing</CardDescription>
+                        <CardDescription>View your current plan and manage your subscription</CardDescription>
                       </CardHeader>
                       <Separator />
                       <CardContent className="pt-6">
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                          <div>
-                            <div className="flex items-center gap-2 mb-2">
-                              <Badge variant="secondary">{derived.planName || "Free"}</Badge>
-                              <Badge variant={derived.subStatus === "active" ? "default" : "outline"}>
-                                {derived.subStatus}
-                              </Badge>
+                        {derived.subStatus === "active" ? (
+                          <div className="space-y-6">
+                            {/* Plan overview card */}
+                            <div className="p-6 rounded-lg border bg-gradient-to-br from-primary/5 to-secondary/5">
+                              <div className="flex items-start justify-between gap-4 flex-wrap">
+                                <div className="space-y-3 flex-1 min-w-[200px]">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <Badge variant="default" className="text-sm px-3 py-1">
+                                      {derived.planName}
+                                    </Badge>
+                                    <Badge variant="outline" className="text-sm px-3 py-1 border-green-500 text-green-700 dark:text-green-400">
+                                      <CheckCircle2 className="h-3 w-3 mr-1" />
+                                      Active
+                                    </Badge>
+                                  </div>
+                                  
+                                  <div className="space-y-2">
+                                    <div className="flex items-baseline gap-2">
+                                      <span className="text-3xl font-bold">
+                                        ${derived.price || "—"}
+                                      </span>
+                                      <span className="text-muted-foreground">
+                                        / {derived.interval || "billing period"}
+                                      </span>
+                                    </div>
+                                    <p className="text-sm text-muted-foreground">
+                                      Your subscription renews automatically each {derived.interval || "billing period"}.
+                                    </p>
+                                  </div>
+                                </div>
+                              </div>
                             </div>
-                            <p className="font-medium">Current plan: {derived.planName || "Free"}</p>
-                            <p className="text-sm text-muted-foreground mt-1">
-                              {derived.subStatus === "active"
-                                ? "Your subscription is active."
-                                : "Upgrade to unlock premium features and benefits"}
-                            </p>
+
+                            {/* Plan details */}
+                            <div className="grid gap-4 sm:grid-cols-2">
+                              <div className="flex items-start gap-3 p-4 rounded-lg bg-muted/50">
+                                <div className="p-2 rounded-full bg-primary/10">
+                                  <CreditCard className="h-4 w-4 text-primary" />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-sm font-medium">Plan Type</p>
+                                  <p className="text-sm text-muted-foreground truncate">{derived.planName}</p>
+                                </div>
+                              </div>
+
+                              <div className="flex items-start gap-3 p-4 rounded-lg bg-muted/50">
+                                <div className="p-2 rounded-full bg-primary/10">
+                                  <Shield className="h-4 w-4 text-primary" />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-sm font-medium">Status</p>
+                                  <p className="text-sm text-muted-foreground">Active & Current</p>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Help text */}
+                            <div className="flex items-start gap-2 p-4 rounded-lg bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900">
+                              <Shield className="h-5 w-5 text-blue-600 dark:text-blue-400 flex-shrink-0 mt-0.5" />
+                              <div className="space-y-1">
+                                <p className="text-sm font-medium text-blue-900 dark:text-blue-100">
+                                  Need to make changes?
+                                </p>
+                                <p className="text-sm text-blue-700 dark:text-blue-300">
+                                  To upgrade, downgrade, or cancel your subscription, please contact our support team.
+                                </p>
+                              </div>
+                            </div>
                           </div>
-                          <Link to="/pricing">
-                            <Button className="gap-2">
-                              <DollarSign className="h-4 w-4" />
-                              {derived.subStatus === "active" ? "Manage plan" : "View plans"}
-                            </Button>
-                          </Link>
-                        </div>
+                        ) : (
+                          <div className="space-y-6">
+                            {/* Free plan card */}
+                            <div className="p-6 rounded-lg border bg-muted/30">
+                              <div className="flex items-start justify-between gap-4 flex-wrap">
+                                <div className="space-y-3 flex-1 min-w-[200px]">
+                                  <div className="flex items-center gap-2">
+                                    <Badge variant="secondary" className="text-sm px-3 py-1">
+                                      Free Plan
+                                    </Badge>
+                                    <Badge variant="outline" className="text-sm px-3 py-1">
+                                      {derived.subStatus}
+                                    </Badge>
+                                  </div>
+                                  
+                                  <div className="space-y-2">
+                                    <h3 className="text-xl font-semibold">Get started with a plan</h3>
+                                    <p className="text-sm text-muted-foreground">
+                                      Upgrade to unlock premium features, advanced AI detection, and priority support.
+                                    </p>
+                                  </div>
+                                </div>
+
+                                <Link to="/pricing">
+                                  <Button size="lg" className="gap-2">
+                                    <DollarSign className="h-4 w-4" />
+                                    View plans
+                                  </Button>
+                                </Link>
+                              </div>
+                            </div>
+
+                            {/* Features preview */}
+                            <div className="grid gap-3 sm:grid-cols-2">
+                              <div className="flex items-start gap-3 p-4 rounded-lg border bg-card">
+                                <CheckCircle2 className="h-5 w-5 text-primary flex-shrink-0 mt-0.5" />
+                                <div>
+                                  <p className="text-sm font-medium">50,000 words/month</p>
+                                  <p className="text-xs text-muted-foreground">Process more content</p>
+                                </div>
+                              </div>
+                              <div className="flex items-start gap-3 p-4 rounded-lg border bg-card">
+                                <CheckCircle2 className="h-5 w-5 text-primary flex-shrink-0 mt-0.5" />
+                                <div>
+                                  <p className="text-sm font-medium">Advanced AI detection</p>
+                                  <p className="text-xs text-muted-foreground">Higher accuracy</p>
+                                </div>
+                              </div>
+                              <div className="flex items-start gap-3 p-4 rounded-lg border bg-card">
+                                <CheckCircle2 className="h-5 w-5 text-primary flex-shrink-0 mt-0.5" />
+                                <div>
+                                  <p className="text-sm font-medium">Priority support</p>
+                                  <p className="text-xs text-muted-foreground">Get help faster</p>
+                                </div>
+                              </div>
+                              <div className="flex items-start gap-3 p-4 rounded-lg border bg-card">
+                                <CheckCircle2 className="h-5 w-5 text-primary flex-shrink-0 mt-0.5" />
+                                <div>
+                                  <p className="text-sm font-medium">Export to PDF/Word</p>
+                                  <p className="text-xs text-muted-foreground">Flexible formats</p>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        )}
                       </CardContent>
                     </Card>
                   </TabsContent>
