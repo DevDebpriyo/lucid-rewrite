@@ -479,17 +479,26 @@ const Dashboard = () => {
           </p>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Main Content Area */}
-          <div className="lg:col-span-2 space-y-6">
-            <Tabs value={activeTab} onValueChange={setActiveTab}>
-              <TabsList className="grid w-full grid-cols-3">
-                <TabsTrigger value="analyze">Analyze</TabsTrigger>
-                <TabsTrigger value="rewrite">Rewrite</TabsTrigger>
-                <TabsTrigger value="rephrase">Rephrase</TabsTrigger>
-              </TabsList>
+        {/* Centralized Mode Tabs */}
+        <div className="mb-8 flex justify-center">
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full max-w-md">
+            <TabsList className="grid w-full grid-cols-3">
+              <TabsTrigger value="analyze">Analyze</TabsTrigger>
+              <TabsTrigger value="rewrite">Rewrite</TabsTrigger>
+              <TabsTrigger value="rephrase">Rephrase</TabsTrigger>
+            </TabsList>
+          </Tabs>
+        </div>
 
-              <TabsContent value="analyze" className="mt-6">
+        <div className={`grid grid-cols-1 gap-6 transition-all duration-500 ease-in-out ${
+          activeTab === "analyze" ? "lg:grid-cols-3" : "lg:grid-cols-1"
+        }`}>
+          {/* Main Content Area */}
+          <div className={`space-y-6 transition-all duration-500 ease-in-out ${
+            activeTab === "analyze" ? "lg:col-span-2" : "lg:col-span-1 lg:max-w-5xl lg:mx-auto lg:w-full"
+          }`}>
+            <Tabs value={activeTab} onValueChange={setActiveTab}>
+              <TabsContent value="analyze" className="mt-0 animate-slide-up">
                 <TextEditor
                   value={inputText}
                   onChange={setInputText}
@@ -498,7 +507,7 @@ const Dashboard = () => {
                 />
               </TabsContent>
 
-              <TabsContent value="rewrite" className="mt-6">
+              <TabsContent value="rewrite" className="mt-0 animate-slide-up">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <TextEditor
                     value={inputText}
@@ -515,7 +524,7 @@ const Dashboard = () => {
                 </div>
               </TabsContent>
 
-              <TabsContent value="rephrase" className="mt-6">
+              <TabsContent value="rephrase" className="mt-0 animate-slide-up">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <TextEditor
                     value={inputText}
@@ -572,28 +581,30 @@ const Dashboard = () => {
             </Tabs>
 
             {/* Action Buttons */}
-            <Card className="shadow-medium">
+            <Card className="shadow-medium animate-slide-up">
               <CardHeader className="pb-3">
                 <CardTitle className="text-lg">Actions</CardTitle>
               </CardHeader>
               <CardContent className="flex flex-wrap gap-3">
-                <Button
-                  onClick={handleAnalyze}
-                  disabled={analyzing}
-                  className="gradient-primary"
-                >
-                  {analyzing ? (
-                    <>
-                      <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
-                      Analyzing...
-                    </>
-                  ) : (
-                    <>
-                      <Sparkles className="mr-2 h-4 w-4" />
-                      Analyze Text
-                    </>
-                  )}
-                </Button>
+                {activeTab === "analyze" && (
+                  <Button
+                    onClick={handleAnalyze}
+                    disabled={analyzing}
+                    className="gradient-primary"
+                  >
+                    {analyzing ? (
+                      <>
+                        <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                        Analyzing...
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="mr-2 h-4 w-4" />
+                        Analyze Text
+                      </>
+                    )}
+                  </Button>
+                )}
 
                 {activeTab === "rewrite" && (
                   <div className="flex items-center gap-2">
@@ -661,9 +672,10 @@ const Dashboard = () => {
             </Card>
           </div>
 
-          {/* Sidebar */}
-          <div className="space-y-6">
-            <DetectionScore score={detectionScore} analyzing={analyzing} />
+          {/* Sidebar - Only show in analyze mode with smooth transition */}
+          {activeTab === "analyze" && (
+            <div className="space-y-6 animate-slide-up">
+              <DetectionScore score={detectionScore} analyzing={analyzing} />
 
             {/* AI Model Details */}
             <Card className="shadow-medium">
@@ -761,6 +773,7 @@ const Dashboard = () => {
               </CardContent>
             </Card>
           </div>
+          )}
         </div>
       </main>
 

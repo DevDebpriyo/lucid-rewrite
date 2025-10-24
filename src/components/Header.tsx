@@ -53,7 +53,7 @@ export const Header = () => {
                   <Link to="/profile">Profile</Link>
                 </DropdownMenuItem>
                 <DropdownMenuItem asChild>
-                  <Link to="/dashboard">Dashboard</Link>
+                  <Link to="/features">Home</Link>
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   onClick={async () => {
