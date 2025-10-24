@@ -24,12 +24,18 @@ export const Footer = () => {
             <h3 className="font-semibold mb-3">Product</h3>
             <ul className="space-y-2">
               <li>
-                <Link to="/dashboard" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+                <Link
+                  to="/dashboard"
+                  className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+                >
                   Dashboard
                 </Link>
               </li>
               <li>
-                <Link to="/pricing" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+                <Link
+                  to="/pricing"
+                  className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+                >
                   Pricing
                 </Link>
               </li>
@@ -40,13 +46,11 @@ export const Footer = () => {
             <h3 className="font-semibold mb-3">Company</h3>
             <ul className="space-y-2">
               <li>
-                <a href="#" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+                <a
+                  href="/features"
+                  className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+                >
                   About
-                </a>
-              </li>
-              <li>
-                <a href="#" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-                  Contact
                 </a>
               </li>
             </ul>
@@ -56,13 +60,11 @@ export const Footer = () => {
             <h3 className="font-semibold mb-3">Legal</h3>
             <ul className="space-y-2">
               <li>
-                <a href="#" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+                <a
+                  href="#"
+                  className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+                >
                   Privacy Policy
-                </a>
-              </li>
-              <li>
-                <a href="#" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-                  Terms of Service
                 </a>
               </li>
             </ul>
