@@ -58,7 +58,7 @@ const Dashboard = () => {
   const [rewrittenText, setRewrittenText] = useState("");
   const [detectionScore, setDetectionScore] = useState(0);
   const [analyzing, setAnalyzing] = useState(false);
-  const [tone, setTone] = useState("professional");
+  const [tone, setTone] = useState("formal");
   const [activeTab, setActiveTab] = useState("analyze");
   const [aiLabel, setAiLabel] = useState<string | null>(null);
   const [aiComponents, setAiComponents] = useState<Record<string, number> | null>(null);
@@ -258,20 +258,80 @@ const Dashboard = () => {
     }
   };
 
-  const handleRewrite = () => {
+  const handleRewrite = async () => {
     if (!inputText.trim()) {
       toast.error("Please enter some text to rewrite");
       return;
     }
 
     setAnalyzing(true);
-    // Simulate rewriting
-    setTimeout(() => {
-      setRewrittenText(`[Rewritten in ${tone} tone]\n\n${inputText}`);
+    try {
+      const endpoint = buildModelUrl("/model/tone-rewrite");
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ text: inputText, tone }),
+      });
+
+      let json: any = null;
+      try {
+        json = await res.json();
+      } catch {
+        // ignore
+      }
+
+      if (res.status === 429) {
+        const msg = json?.error || "Too many requests. Please try again in a few minutes.";
+        throw new Error(msg);
+      }
+
+      if (!res.ok) {
+        const msg = json?.error || res.statusText || "Rewrite request failed";
+        throw new Error(`Rewrite API error (${res.status}): ${msg}`);
+      }
+
+      if (!json || json.ok !== true) {
+        const msg = json?.error || "Unexpected rewrite response format";
+        throw new Error(msg);
+      }
+
+      // Extract rewritten text from flexible data shape
+      const data = json.data;
+      let rewritten: string | null = null;
+      const tryExtract = (val: any): string | null => {
+        if (typeof val === "string") return val;
+        if (Array.isArray(val)) {
+          // Prefer first string; else if first item has .text
+          if (typeof val[0] === "string") return val[0] as string;
+          if (val[0] && typeof val[0] === "object" && typeof val[0].text === "string") return val[0].text;
+        }
+        if (val && typeof val === "object") {
+          if (typeof val.text === "string") return val.text;
+          // Some spaces might return under different keys
+          const candidates = ["output", "result", "content"] as const;
+          for (const key of candidates) {
+            if (typeof val[key] === "string") return val[key] as string;
+            if (Array.isArray(val[key]) && typeof val[key][0] === "string") return val[key][0] as string;
+          }
+        }
+        return null;
+      };
+      rewritten = tryExtract(data);
+
+      if (!rewritten) {
+        throw new Error("Could not parse rewritten text from response");
+      }
+
+      setRewrittenText(rewritten);
       setActiveTab("rewrite");
-      setAnalyzing(false);
       toast.success("Text rewritten successfully!");
-    }, 2000);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unexpected error during rewrite";
+      toast.error(message);
+    } finally {
+      setAnalyzing(false);
+    }
   };
 
   const handleRephrase = async () => {
@@ -532,10 +592,10 @@ const Dashboard = () => {
                         <SelectValue placeholder="Select tone" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="professional">Professional</SelectItem>
+                        <SelectItem value="formal">Formal</SelectItem>
                         <SelectItem value="casual">Casual</SelectItem>
-                        <SelectItem value="creative">Creative</SelectItem>
-                        <SelectItem value="academic">Academic</SelectItem>
+                        <SelectItem value="humorous">Humorous</SelectItem>
+                        <SelectItem value="narrative">Narrative</SelectItem>
                       </SelectContent>
                     </Select>
 
@@ -569,26 +629,24 @@ const Dashboard = () => {
                   </div>
                 )}
 
-                <div className="ml-auto flex gap-2">
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    onClick={() =>
-                      handleCopy(
-                        activeTab === "analyze"
-                          ? inputText
-                          : activeTab === "rewrite"
-                          ? rewrittenText
-                          : rephrasedText
-                      )
-                    }
-                  >
-                    <Copy className="h-4 w-4" />
-                  </Button>
-                  <Button variant="outline" size="icon" onClick={handleDownload}>
-                    <Download className="h-4 w-4" />
-                  </Button>
-                </div>
+                {activeTab !== "analyze" && (
+                  <div className="ml-auto flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={() =>
+                        handleCopy(
+                          activeTab === "rewrite" ? rewrittenText : rephrasedText
+                        )
+                      }
+                    >
+                      <Copy className="h-4 w-4" />
+                    </Button>
+                    <Button variant="outline" size="icon" onClick={handleDownload}>
+                      <Download className="h-4 w-4" />
+                    </Button>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </div>
