@@ -117,39 +117,112 @@ const Dashboard = () => {
 
     setAnalyzing(true);
     try {
-      // Call both AI detection and plagiarism APIs in parallel
-      const aiEndpoint = buildAiUrl("/detect");
-      const plagEndpoint = buildPlagUrl("/check_plagiarism");
+  // Call both AI detection and plagiarism APIs in parallel
+  // New AI score endpoint served by backend proxying Gradio
+  const aiEndpoint = buildModelUrl("/model/ai-score");
+  // New plagiarism endpoint (Gradio via backend)
+  const plagEndpoint = buildModelUrl("/model/plagiarism-check");
 
       const aiReq = fetch(aiEndpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({ text: textToAnalyze }),
       }).then(async (res) => {
-        if (!res.ok) {
-          const text = await res.text().catch(() => "");
-          throw new Error(`AI detection API error (${res.status}): ${text || res.statusText}`);
+        // Try to parse JSON either way
+        let json: any = null;
+        try {
+          json = await res.json();
+        } catch {
+          // ignore
         }
-        return res.json() as Promise<{
+
+        // Handle rate limiting explicitly
+        if (res.status === 429) {
+          const msg = json?.error || "Too many requests. Please try again in a few minutes.";
+          throw new Error(msg);
+        }
+
+        // Non-2xx with error body
+        if (!res.ok) {
+          const msg = json?.error || res.statusText || "AI score request failed";
+          throw new Error(`AI detection API error (${res.status}): ${msg}`);
+        }
+
+        // Expect shape { ok: true, data: { ... } } or { ok: true, data: [ { ... } ] }
+        if (!json || json.ok !== true || !json.data) {
+          const msg = json?.error || "Unexpected AI score response format";
+          throw new Error(msg);
+        }
+
+        let payload = json.data as
+          | {
+              final_score: number;
+              label?: string;
+              components?: Record<string, number>;
+            }
+          | Array<{
+              final_score: number;
+              label?: string;
+              components?: Record<string, number>;
+            }>;
+
+        if (Array.isArray(payload)) {
+          payload = payload[0];
+        }
+
+        if (!payload || typeof payload !== "object" || payload.final_score === undefined) {
+          throw new Error("AI score response missing expected fields");
+        }
+
+        return payload as {
           final_score: number;
           label?: string;
           components?: Record<string, number>;
-        }>;
+        };
       });
 
       const plagReq = fetch(plagEndpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({ text: textToAnalyze }),
       }).then(async (res) => {
-        if (!res.ok) {
-          const text = await res.text().catch(() => "");
-          throw new Error(`Plagiarism API error (${res.status}): ${text || res.statusText}`);
+        let json: any = null;
+        try {
+          json = await res.json();
+        } catch {
+          // ignore
         }
-        return res.json() as Promise<{
-          score?: number;
-          urls?: string[];
-        }>;
+
+        if (res.status === 429) {
+          const msg = json?.error || "Too many requests. Please try again in a few minutes.";
+          throw new Error(msg);
+        }
+
+        if (!res.ok) {
+          const msg = json?.error || res.statusText || "Plagiarism request failed";
+          throw new Error(`Plagiarism API error (${res.status}): ${msg}`);
+        }
+
+        if (!json || json.ok !== true || !json.data) {
+          const msg = json?.error || "Unexpected plagiarism response format";
+          throw new Error(msg);
+        }
+
+        let payload = json.data as
+          | { score?: number; urls?: string[] }
+          | Array<{ score?: number; urls?: string[] }>;
+
+        if (Array.isArray(payload)) {
+          payload = payload[0];
+        }
+
+        if (!payload || typeof payload !== "object") {
+          throw new Error("Plagiarism response missing expected fields");
+        }
+
+        return payload as { score?: number; urls?: string[] };
       });
 
       const [aiRes, plagRes] = await Promise.allSettled([aiReq, plagReq]);
@@ -162,13 +235,15 @@ const Dashboard = () => {
         setAiLabel(label ?? null);
         setAiComponents(components ?? null);
       } else {
-        toast.error(aiRes.reason?.message || "Failed to get AI detection score");
+        const msg = aiRes.reason?.message || "Failed to get AI detection score";
+        toast.error(msg);
       }
 
       // Handle plagiarism result
       if (plagRes.status === "fulfilled") {
         const { score, urls } = plagRes.value;
-        setPlagScore(typeof score === "number" ? Math.round(score) : null);
+        const val = typeof score === "number" ? score : Number(score);
+        setPlagScore(Number.isFinite(val) ? val : null);
         setPlagUrls(Array.isArray(urls) ? urls : []);
       } else {
         toast.error(plagRes.reason?.message || "Failed to get plagiarism score");
@@ -562,9 +637,9 @@ const Dashboard = () => {
               <CardContent className="space-y-3">
                 <div className="flex items-end gap-2">
                   <span className="text-3xl font-bold">
-                    {analyzing ? "--" : plagScore !== null ? `${plagScore}` : "--"}
+                    {analyzing ? "--" : plagScore !== null ? plagScore.toFixed(2) : "--"}
                   </span>
-                  <span className="text-muted-foreground mb-1">/ 100</span>
+                  <span className="text-muted-foreground mb-1">%</span>
                 </div>
                 <div className="space-y-2">
                   <p className="text-sm text-muted-foreground">Matching sources</p>
