@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Header } from "@/components/Header";
 import { Footer } from "@/components/Footer";
 import { TextEditor } from "@/components/TextEditor";
@@ -54,6 +55,7 @@ const buildModelUrl = (path: string) => {
 };
 
 const Dashboard = () => {
+  const [searchParams] = useSearchParams();
   const [inputText, setInputText] = useState("");
   const [rewrittenText, setRewrittenText] = useState("");
   const [detectionScore, setDetectionScore] = useState(0);
@@ -68,6 +70,14 @@ const Dashboard = () => {
   const [rephraseMode, setRephraseMode] = useState<"simple" | "advanced">("simple");
   const [advOptions, setAdvOptions] = useState<Array<{ sentence: string; options: string[] }> | null>(null);
   const [advSelection, setAdvSelection] = useState<Record<number, number>>({});
+
+  // Handle mode parameter from URL
+  useEffect(() => {
+    const mode = searchParams.get("mode");
+    if (mode && ["analyze", "rewrite", "rephrase"].includes(mode)) {
+      setActiveTab(mode);
+    }
+  }, [searchParams]);
 
   // Parse the Gradio result string into structured sentence options
   const parseAdvancedOptions = (raw: unknown): Array<{ sentence: string; options: string[] }> => {

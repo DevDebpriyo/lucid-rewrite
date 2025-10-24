@@ -26,7 +26,7 @@ export default function SignIn() {
   const form = useForm<FormValues>({ resolver: zodResolver(schema), defaultValues: { email: "", password: "" } });
 
   const rawNext = new URLSearchParams(loc.search).get("next");
-  const destination = rawNext && !rawNext.startsWith("/profile") ? rawNext : "/dashboard";
+  const destination = rawNext && !rawNext.startsWith("/profile") ? rawNext : "/features";
 
   useEffect(() => {
     if (user) nav(destination, { replace: true });
