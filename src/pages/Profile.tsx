@@ -55,6 +55,15 @@ export default function Profile() {
   let interval = intervalRaw ? String(intervalRaw).toLowerCase() : undefined;
   const price = u?.subscription?.plan?.price ?? u?.plan?.price ?? u?.membership?.plan?.price ?? undefined;
 
+    // Get subscription period end date
+    const periodEndRaw = u?.subscription?.currentPeriodEnd || u?.subscription?.periodEnd || u?.subscriptionEnd || u?.renewalDate;
+    const periodEndDate = periodEndRaw ? new Date(periodEndRaw) : null;
+    const periodEnd = periodEndDate && !isNaN(periodEndDate.getTime())
+      ? periodEndDate.toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" })
+      : undefined;
+    
+    const cancelAtPeriodEnd = Boolean(u?.subscription?.cancelAtPeriodEnd || u?.cancelAtPeriodEnd);
+
     // If subscription is active and plan name missing, infer from interval
     let planName = planNameRaw as string;
     if ((!planName || planName.toLowerCase() === "free") && subStatus === "active") {
@@ -76,7 +85,7 @@ export default function Profile() {
     }
     if (!planName) planName = "Free";
 
-    return { memberSince, planName, subStatus, emailVerified, interval, price };
+    return { memberSince, planName, subStatus, emailVerified, interval, price, periodEnd, cancelAtPeriodEnd };
   }, [user]);
 
   // If redirected back from checkout, refresh user and show status
@@ -127,10 +136,10 @@ export default function Profile() {
             <p className="text-muted-foreground mt-1">Manage your account settings and preferences</p>
           </div>
           <div className="flex items-center gap-2">
-            <Link to="/dashboard">
+            <Link to="/features">
               <Button variant="outline" size="sm" className="gap-2">
                 <LayoutDashboard className="h-4 w-4" />
-                Dashboard
+                Home
               </Button>
             </Link>
             <Link to="/pricing">
@@ -273,7 +282,7 @@ export default function Profile() {
                       </CardContent>
                     </Card>
 
-                    <Card className="border-muted">
+                    {/* <Card className="border-muted">
                       <CardHeader>
                         <div className="flex items-center gap-2">
                           <Shield className="h-5 w-5 text-primary" />
@@ -296,7 +305,7 @@ export default function Profile() {
                           </Button>
                         </div>
                       </CardContent>
-                    </Card>
+                    </Card> */}
                   </TabsContent>
 
                   <TabsContent value="subscriptions" className="space-y-6 pt-6">
@@ -361,9 +370,25 @@ export default function Profile() {
                                 </div>
                                 <div className="flex-1 min-w-0">
                                   <p className="text-sm font-medium">Status</p>
-                                  <p className="text-sm text-muted-foreground">Active & Current</p>
+                                  <p className="text-sm text-muted-foreground">
+                                    {derived.cancelAtPeriodEnd ? "Cancels at period end" : "Active & Current"}
+                                  </p>
                                 </div>
                               </div>
+
+                              {derived.periodEnd && (
+                                <div className="flex items-start gap-3 p-4 rounded-lg bg-muted/50 sm:col-span-2">
+                                  <div className="p-2 rounded-full bg-primary/10">
+                                    <CreditCard className="h-4 w-4 text-primary" />
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-sm font-medium">
+                                      {derived.cancelAtPeriodEnd ? "Subscription ends on" : "Next billing date"}
+                                    </p>
+                                    <p className="text-sm text-muted-foreground">{derived.periodEnd}</p>
+                                  </div>
+                                </div>
+                              )}
                             </div>
 
                             {/* Help text */}
