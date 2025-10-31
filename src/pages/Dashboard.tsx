@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Sparkles, Copy, Download, RefreshCw, Loader2 } from "lucide-react";
+import { Sparkles, Copy, Download, RefreshCw, Loader2, X } from "lucide-react";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
@@ -74,6 +74,7 @@ const Dashboard = () => {
   const [loadingProgress, setLoadingProgress] = useState(0);
   const [loadingStep, setLoadingStep] = useState<string>("");
   const [analysisType, setAnalysisType] = useState<"ai-score" | "plagiarism">("ai-score");
+  const [abortController, setAbortController] = useState<AbortController | null>(null);
 
   // Handle mode parameter from URL
   useEffect(() => {
@@ -97,6 +98,19 @@ const Dashboard = () => {
     }, 800); // Change step every 800ms
     
     return () => clearInterval(interval);
+  };
+
+  // Handle cancel operation
+  const handleCancel = () => {
+    if (abortController) {
+      abortController.abort();
+      setAbortController(null);
+    }
+    setAnalyzing(false);
+    setLoadingMessage("");
+    setLoadingProgress(0);
+    setLoadingStep("");
+    toast.info("Operation cancelled");
   };
 
   // Parse the Gradio result string into structured sentence options
@@ -145,6 +159,9 @@ const Dashboard = () => {
       return;
     }
 
+    const controller = new AbortController();
+    setAbortController(controller);
+    
     setAnalyzing(true);
     setLoadingMessage(analysisType === "ai-score" ? "Analyzing AI content..." : "Checking for plagiarism...");
     setLoadingProgress(0);
@@ -177,6 +194,7 @@ const Dashboard = () => {
           headers: { "Content-Type": "application/json" },
           credentials: "include",
           body: JSON.stringify({ text: textToAnalyze }),
+          signal: controller.signal,
         });
 
         let json: any = null;
@@ -241,6 +259,7 @@ const Dashboard = () => {
           headers: { "Content-Type": "application/json" },
           credentials: "include",
           body: JSON.stringify({ text: textToAnalyze }),
+          signal: controller.signal,
         });
 
         let json: any = null;
@@ -291,9 +310,14 @@ const Dashboard = () => {
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unexpected error during analysis";
+      // Don't show error if user cancelled
+      if (err instanceof Error && err.name === 'AbortError') {
+        return;
+      }
       toast.error(message);
     } finally {
       cleanup();
+      setAbortController(null);
       setLoadingProgress(100);
       setLoadingStep("Complete!");
       setTimeout(() => {
@@ -310,6 +334,9 @@ const Dashboard = () => {
       toast.error("Please enter some text to rewrite");
       return;
     }
+
+    const controller = new AbortController();
+    setAbortController(controller);
 
     setAnalyzing(true);
     setLoadingMessage("Rewriting your text...");
@@ -333,6 +360,7 @@ const Dashboard = () => {
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify({ text: inputText, tone }),
+        signal: controller.signal,
       });
 
       let json: any = null;
@@ -389,9 +417,14 @@ const Dashboard = () => {
       toast.success("Text rewritten successfully!");
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unexpected error during rewrite";
+      // Don't show error if user cancelled
+      if (err instanceof Error && err.name === 'AbortError') {
+        return;
+      }
       toast.error(message);
     } finally {
       cleanup();
+      setAbortController(null);
       setLoadingProgress(100);
       setLoadingStep("Complete!");
       setTimeout(() => {
@@ -408,6 +441,9 @@ const Dashboard = () => {
       toast.error("Please enter some text to rephrase");
       return;
     }
+
+    const controller = new AbortController();
+    setAbortController(controller);
 
     setAnalyzing(true);
     setLoadingMessage(rephraseMode === "advanced" ? "Generating rephrase options..." : "Rephrasing your text...");
@@ -438,6 +474,7 @@ const Dashboard = () => {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ text: inputText }),
+          signal: controller.signal,
         });
         if (!res.ok) {
           const text = await res.text().catch(() => "");
@@ -483,6 +520,7 @@ const Dashboard = () => {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ text: inputText }),
+          signal: controller.signal,
         });
         if (!res.ok) {
           const text = await res.text().catch(() => "");
@@ -508,9 +546,14 @@ const Dashboard = () => {
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unexpected error during rephrase";
+      // Don't show error if user cancelled
+      if (err instanceof Error && err.name === 'AbortError') {
+        return;
+      }
       toast.error(message);
     } finally {
       cleanup();
+      setAbortController(null);
       setLoadingProgress(100);
       setLoadingStep("Complete!");
       setTimeout(() => {
@@ -636,6 +679,16 @@ const Dashboard = () => {
                     ))}
                   </div>
                 </div>
+                
+                {/* Cancel Button */}
+                <Button 
+                  variant="outline" 
+                  className="w-full gap-2 hover:bg-destructive hover:text-destructive-foreground transition-colors"
+                  onClick={handleCancel}
+                >
+                  <X className="h-4 w-4" />
+                  Cancel
+                </Button>
               </div>
             </CardContent>
           </Card>
