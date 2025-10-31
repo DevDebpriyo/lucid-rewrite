@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Sparkles, Copy, Download, RefreshCw } from "lucide-react";
+import { Sparkles, Copy, Download, RefreshCw, Loader2 } from "lucide-react";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
@@ -70,6 +70,10 @@ const Dashboard = () => {
   const [rephraseMode, setRephraseMode] = useState<"simple" | "advanced">("simple");
   const [advOptions, setAdvOptions] = useState<Array<{ sentence: string; options: string[] }> | null>(null);
   const [advSelection, setAdvSelection] = useState<Record<number, number>>({});
+  const [loadingMessage, setLoadingMessage] = useState<string>("");
+  const [loadingProgress, setLoadingProgress] = useState(0);
+  const [loadingStep, setLoadingStep] = useState<string>("");
+  const [analysisType, setAnalysisType] = useState<"ai-score" | "plagiarism">("ai-score");
 
   // Handle mode parameter from URL
   useEffect(() => {
@@ -78,6 +82,22 @@ const Dashboard = () => {
       setActiveTab(mode);
     }
   }, [searchParams]);
+
+  // Simulate progress with steps
+  const simulateProgress = (steps: Array<{ progress: number; message: string }>) => {
+    let currentStep = 0;
+    const interval = setInterval(() => {
+      if (currentStep < steps.length) {
+        setLoadingProgress(steps[currentStep].progress);
+        setLoadingStep(steps[currentStep].message);
+        currentStep++;
+      } else {
+        clearInterval(interval);
+      }
+    }, 800); // Change step every 800ms
+    
+    return () => clearInterval(interval);
+  };
 
   // Parse the Gradio result string into structured sentence options
   const parseAdvancedOptions = (raw: unknown): Array<{ sentence: string; options: string[] }> => {
@@ -126,20 +146,39 @@ const Dashboard = () => {
     }
 
     setAnalyzing(true);
+    setLoadingMessage(analysisType === "ai-score" ? "Analyzing AI content..." : "Checking for plagiarism...");
+    setLoadingProgress(0);
+    
+    // Define progress steps based on analysis type
+    const progressSteps = analysisType === "ai-score"
+      ? [
+          { progress: 20, message: "Preparing text for analysis..." },
+          { progress: 40, message: "Running AI detection models..." },
+          { progress: 60, message: "Analyzing language patterns..." },
+          { progress: 80, message: "Computing AI probability..." },
+          { progress: 95, message: "Finalizing results..." },
+        ]
+      : [
+          { progress: 20, message: "Preparing text for plagiarism check..." },
+          { progress: 40, message: "Searching content databases..." },
+          { progress: 60, message: "Comparing with sources..." },
+          { progress: 80, message: "Identifying matches..." },
+          { progress: 95, message: "Finalizing results..." },
+        ];
+    
+    const cleanup = simulateProgress(progressSteps);
+    
     try {
-  // Call both AI detection and plagiarism APIs in parallel
-  // New AI score endpoint served by backend proxying Gradio
-  const aiEndpoint = buildModelUrl("/model/ai-score");
-  // New plagiarism endpoint (Gradio via backend)
-  const plagEndpoint = buildModelUrl("/model/plagiarism-check");
+      if (analysisType === "ai-score") {
+        // Call AI detection API only
+        const aiEndpoint = buildModelUrl("/model/ai-score");
+        const res = await fetch(aiEndpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ text: textToAnalyze }),
+        });
 
-      const aiReq = fetch(aiEndpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ text: textToAnalyze }),
-      }).then(async (res) => {
-        // Try to parse JSON either way
         let json: any = null;
         try {
           json = await res.json();
@@ -147,19 +186,16 @@ const Dashboard = () => {
           // ignore
         }
 
-        // Handle rate limiting explicitly
         if (res.status === 429) {
           const msg = json?.error || "Too many requests. Please try again in a few minutes.";
           throw new Error(msg);
         }
 
-        // Non-2xx with error body
         if (!res.ok) {
           const msg = json?.error || res.statusText || "AI score request failed";
           throw new Error(`AI detection API error (${res.status}): ${msg}`);
         }
 
-        // Expect shape { ok: true, data: { ... } } or { ok: true, data: [ { ... } ] }
         if (!json || json.ok !== true || !json.data) {
           const msg = json?.error || "Unexpected AI score response format";
           throw new Error(msg);
@@ -185,19 +221,28 @@ const Dashboard = () => {
           throw new Error("AI score response missing expected fields");
         }
 
-        return payload as {
-          final_score: number;
-          label?: string;
-          components?: Record<string, number>;
-        };
-      });
+        const { final_score, label, components } = payload;
+        // final_score is already a percentage (0-100), no need to multiply
+        const scorePct = Math.max(0, Math.min(100, Math.round(final_score ?? 0)));
+        setDetectionScore(scorePct);
+        setAiLabel(label ?? null);
+        setAiComponents(components ?? null);
+        
+        // Clear plagiarism results
+        setPlagScore(null);
+        setPlagUrls([]);
+        
+        toast.success("AI analysis complete!");
+      } else {
+        // Call plagiarism API only
+        const plagEndpoint = buildModelUrl("/model/plagiarism-check");
+        const res = await fetch(plagEndpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ text: textToAnalyze }),
+        });
 
-      const plagReq = fetch(plagEndpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ text: textToAnalyze }),
-      }).then(async (res) => {
         let json: any = null;
         try {
           json = await res.json();
@@ -232,39 +277,31 @@ const Dashboard = () => {
           throw new Error("Plagiarism response missing expected fields");
         }
 
-        return payload as { score?: number; urls?: string[] };
-      });
-
-      const [aiRes, plagRes] = await Promise.allSettled([aiReq, plagReq]);
-
-      // Handle AI detection result
-      if (aiRes.status === "fulfilled") {
-        const { final_score, label, components } = aiRes.value;
-        const scorePct = Math.max(0, Math.min(100, Math.round((final_score ?? 0) * 100)));
-        setDetectionScore(scorePct);
-        setAiLabel(label ?? null);
-        setAiComponents(components ?? null);
-      } else {
-        const msg = aiRes.reason?.message || "Failed to get AI detection score";
-        toast.error(msg);
-      }
-
-      // Handle plagiarism result
-      if (plagRes.status === "fulfilled") {
-        const { score, urls } = plagRes.value;
+        const { score, urls } = payload;
         const val = typeof score === "number" ? score : Number(score);
         setPlagScore(Number.isFinite(val) ? val : null);
         setPlagUrls(Array.isArray(urls) ? urls : []);
-      } else {
-        toast.error(plagRes.reason?.message || "Failed to get plagiarism score");
+        
+        // Clear AI detection results
+        setDetectionScore(0);
+        setAiLabel(null);
+        setAiComponents(null);
+        
+        toast.success("Plagiarism check complete!");
       }
-
-      toast.success("Analysis complete!");
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unexpected error during analysis";
       toast.error(message);
     } finally {
-      setAnalyzing(false);
+      cleanup();
+      setLoadingProgress(100);
+      setLoadingStep("Complete!");
+      setTimeout(() => {
+        setAnalyzing(false);
+        setLoadingMessage("");
+        setLoadingProgress(0);
+        setLoadingStep("");
+      }, 500);
     }
   };
 
@@ -275,6 +312,20 @@ const Dashboard = () => {
     }
 
     setAnalyzing(true);
+    setLoadingMessage("Rewriting your text...");
+    setLoadingProgress(0);
+    
+    // Define progress steps for rewriting
+    const progressSteps = [
+      { progress: 20, message: "Analyzing original text structure..." },
+      { progress: 40, message: "Applying tone transformations..." },
+      { progress: 60, message: "Enhancing readability..." },
+      { progress: 80, message: "Polishing final output..." },
+      { progress: 95, message: "Almost done..." },
+    ];
+    
+    const cleanup = simulateProgress(progressSteps);
+    
     try {
       const endpoint = buildModelUrl("/model/tone-rewrite");
       const res = await fetch(endpoint, {
@@ -340,7 +391,15 @@ const Dashboard = () => {
       const message = err instanceof Error ? err.message : "Unexpected error during rewrite";
       toast.error(message);
     } finally {
-      setAnalyzing(false);
+      cleanup();
+      setLoadingProgress(100);
+      setLoadingStep("Complete!");
+      setTimeout(() => {
+        setAnalyzing(false);
+        setLoadingMessage("");
+        setLoadingProgress(0);
+        setLoadingStep("");
+      }, 500);
     }
   };
 
@@ -351,6 +410,27 @@ const Dashboard = () => {
     }
 
     setAnalyzing(true);
+    setLoadingMessage(rephraseMode === "advanced" ? "Generating rephrase options..." : "Rephrasing your text...");
+    setLoadingProgress(0);
+    
+    // Define progress steps for rephrasing
+    const progressSteps = rephraseMode === "advanced" 
+      ? [
+          { progress: 15, message: "Breaking text into sentences..." },
+          { progress: 35, message: "Generating alternative phrasings..." },
+          { progress: 55, message: "Creating variation options..." },
+          { progress: 75, message: "Optimizing suggestions..." },
+          { progress: 90, message: "Preparing options for selection..." },
+        ]
+      : [
+          { progress: 25, message: "Analyzing sentence structure..." },
+          { progress: 50, message: "Generating rephrased version..." },
+          { progress: 75, message: "Refining output..." },
+          { progress: 95, message: "Finalizing..." },
+        ];
+    
+    const cleanup = simulateProgress(progressSteps);
+    
     try {
       if (rephraseMode === "advanced") {
   // Fetch per-sentence options
@@ -363,21 +443,33 @@ const Dashboard = () => {
           const text = await res.text().catch(() => "");
           console.error("Rephrase Options API failed:", res.status, text);
           toast.error(`Rephrase Options API error (${res.status}): ${text || res.statusText}`);
+          cleanup();
           setAnalyzing(false);
+          setLoadingMessage("");
+          setLoadingProgress(0);
+          setLoadingStep("");
           return;
         }
         const json: { ok?: boolean; data?: unknown } = await res.json();
         if (!json || json.ok !== true) {
           console.error("Rephrase options returned non-ok:", json);
           toast.error(`Rephrase Options API returned error: ${(json as any)?.error || JSON.stringify(json)}`);
+          cleanup();
           setAnalyzing(false);
+          setLoadingMessage("");
+          setLoadingProgress(0);
+          setLoadingStep("");
           return;
         }
         const parsed = parseAdvancedOptions((json as any).data);
         if (!parsed.length) {
           console.error("Parsed options empty, raw data:", (json as any).data);
           toast.error("Could not parse rephrase options from response");
+          cleanup();
           setAnalyzing(false);
+          setLoadingMessage("");
+          setLoadingProgress(0);
+          setLoadingStep("");
           return;
         }
         setAdvOptions(parsed);
@@ -396,7 +488,11 @@ const Dashboard = () => {
           const text = await res.text().catch(() => "");
           console.error("Rephrase API failed:", res.status, text);
           toast.error(`Rephrase API error (${res.status}): ${text || res.statusText}`);
+          cleanup();
           setAnalyzing(false);
+          setLoadingMessage("");
+          setLoadingProgress(0);
+          setLoadingStep("");
           return;
         }
         const json: { ok?: boolean; data?: unknown } = await res.json();
@@ -414,7 +510,15 @@ const Dashboard = () => {
       const message = err instanceof Error ? err.message : "Unexpected error during rephrase";
       toast.error(message);
     } finally {
-      setAnalyzing(false);
+      cleanup();
+      setLoadingProgress(100);
+      setLoadingStep("Complete!");
+      setTimeout(() => {
+        setAnalyzing(false);
+        setLoadingMessage("");
+        setLoadingProgress(0);
+        setLoadingStep("");
+      }, 500);
     }
   };
 
@@ -470,6 +574,73 @@ const Dashboard = () => {
   return (
     <div className="min-h-screen flex flex-col">
       <Header />
+      
+      {/* Loading Overlay */}
+      {analyzing && (
+        <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center">
+          <Card className="w-[90%] max-w-md shadow-2xl border-2">
+            <CardContent className="pt-6 pb-6">
+              <div className="flex flex-col items-center justify-center space-y-6">
+                {/* Animated Icon */}
+                <div className="relative">
+                  <Loader2 className="h-16 w-16 animate-spin text-primary" />
+                  <div className="absolute inset-0 h-16 w-16 animate-ping opacity-20">
+                    <Sparkles className="h-16 w-16 text-primary" />
+                  </div>
+                </div>
+                
+                {/* Main Message */}
+                <div className="space-y-2 text-center">
+                  <h3 className="text-lg font-semibold">{loadingMessage || "Processing..."}</h3>
+                  <p className="text-sm text-muted-foreground">
+                    This may take a few moments. Please wait...
+                  </p>
+                </div>
+                
+                {/* Progress Bar */}
+                <div className="w-full space-y-2">
+                  <div className="flex justify-between items-center text-xs text-muted-foreground">
+                    <span className="font-medium">{loadingStep || "Initializing..."}</span>
+                    <span className="font-bold">{loadingProgress}%</span>
+                  </div>
+                  <div className="w-full bg-muted rounded-full h-3 overflow-hidden border border-border">
+                    <div 
+                      className="h-full bg-gradient-to-r from-primary via-primary/90 to-secondary transition-all duration-500 ease-out relative overflow-hidden"
+                      style={{ width: `${loadingProgress}%` }}
+                    >
+                      {/* Animated shimmer effect */}
+                      <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent animate-shimmer" 
+                           style={{ 
+                             backgroundSize: '200% 100%',
+                             animation: 'shimmer 2s infinite'
+                           }} 
+                      />
+                    </div>
+                  </div>
+                  
+                  {/* Progress Steps Indicator */}
+                  <div className="flex justify-between pt-2">
+                    {[0, 25, 50, 75, 100].map((step) => (
+                      <div 
+                        key={step} 
+                        className={`flex flex-col items-center transition-all duration-300 ${
+                          loadingProgress >= step ? 'opacity-100' : 'opacity-30'
+                        }`}
+                      >
+                        <div className={`w-2 h-2 rounded-full transition-all duration-300 ${
+                          loadingProgress >= step 
+                            ? 'bg-primary scale-125' 
+                            : 'bg-muted-foreground scale-100'
+                        }`} />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
       
       <main className="flex-1 container mx-auto px-4 py-8">
         <div className="mb-8 animate-fade-in">
@@ -587,23 +758,35 @@ const Dashboard = () => {
               </CardHeader>
               <CardContent className="flex flex-wrap gap-3">
                 {activeTab === "analyze" && (
-                  <Button
-                    onClick={handleAnalyze}
-                    disabled={analyzing}
-                    className="gradient-primary"
-                  >
-                    {analyzing ? (
-                      <>
-                        <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
-                        Analyzing...
-                      </>
-                    ) : (
-                      <>
-                        <Sparkles className="mr-2 h-4 w-4" />
-                        Analyze Text
-                      </>
-                    )}
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    <Select value={analysisType} onValueChange={(v) => setAnalysisType(v as any)}>
+                      <SelectTrigger className="w-[180px]">
+                        <SelectValue placeholder="Analysis type" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="ai-score">AI Detection</SelectItem>
+                        <SelectItem value="plagiarism">Plagiarism Check</SelectItem>
+                      </SelectContent>
+                    </Select>
+
+                    <Button
+                      onClick={handleAnalyze}
+                      disabled={analyzing}
+                      className="gradient-primary"
+                    >
+                      {analyzing ? (
+                        <>
+                          <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                          Analyzing...
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="mr-2 h-4 w-4" />
+                          Analyze Text
+                        </>
+                      )}
+                    </Button>
+                  </div>
                 )}
 
                 {activeTab === "rewrite" && (
@@ -675,104 +858,117 @@ const Dashboard = () => {
           {/* Sidebar - Only show in analyze mode with smooth transition */}
           {activeTab === "analyze" && (
             <div className="space-y-6 animate-slide-up">
-              <DetectionScore score={detectionScore} analyzing={analyzing} />
+              {analysisType === "ai-score" ? (
+                <>
+                  <DetectionScore score={detectionScore} analyzing={analyzing} label={aiLabel} />
 
-            {/* AI Model Details */}
-            <Card className="shadow-medium">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-lg">AI Model Insights</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3 text-sm">
-                <div>
-                  <span className="text-muted-foreground">Label: </span>
-                  <span className="font-medium">
-                    {analyzing ? "--" : aiLabel ?? "N/A"}
-                  </span>
-                </div>
-                <div className="space-y-1">
-                  <p className="text-muted-foreground">Model components</p>
-                  {analyzing ? (
-                    <p className="text-xs text-muted-foreground">Analyzing...</p>
-                  ) : formattedComponents.length ? (
-                    <ul className="space-y-1">
-                      {formattedComponents.map((c) => (
-                        <li key={c.key} className="flex justify-between text-xs">
-                          <span className="capitalize">{c.key.replace(/[-_]/g, " ")}</span>
-                          <span className="font-medium">{c.value}%</span>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p className="text-xs text-muted-foreground">No component data</p>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
+                  {/* AI Model Details */}
+                  {/* <Card className="shadow-medium">
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-lg">AI Model Insights</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-3 text-sm">
+                      <div>
+                        <span className="text-muted-foreground">Label: </span>
+                        <span className="font-medium">
+                          {analyzing ? "--" : aiLabel ?? "N/A"}
+                        </span>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-muted-foreground">Model components</p>
+                        {analyzing ? (
+                          <p className="text-xs text-muted-foreground">Analyzing...</p>
+                        ) : formattedComponents.length ? (
+                          <ul className="space-y-1">
+                            {formattedComponents.map((c) => (
+                              <li key={c.key} className="flex justify-between text-xs">
+                                <span className="capitalize">{c.key.replace(/[-_]/g, " ")}</span>
+                                <span className="font-medium">{c.value}%</span>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <p className="text-xs text-muted-foreground">No component data</p>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card> */}
+                </>
+              ) : (
+                <>
+                  {/* Plagiarism Results */}
+                  <Card className="shadow-medium">
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-lg">Plagiarism Check</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      <div className="flex items-end gap-2">
+                        <span className="text-3xl font-bold">
+                          {analyzing ? "--" : plagScore !== null ? plagScore.toFixed(2) : "--"}
+                        </span>
+                        <span className="text-muted-foreground mb-1">%</span>
+                      </div>
+                      <div className="space-y-2">
+                        <p className="text-sm text-muted-foreground">Matching sources</p>
+                        {analyzing ? (
+                          <p className="text-xs text-muted-foreground">Analyzing...</p>
+                        ) : plagUrls.length ? (
+                          <ul className="list-disc pl-4 space-y-1 text-xs break-all">
+                            {plagUrls.map((u, idx) => (
+                              <li key={`${u}-${idx}`}>
+                                <a
+                                  href={u}
+                                  target="_blank"
+                                  rel="noreferrer noopener"
+                                  className="text-primary hover:underline"
+                                >
+                                  {u}
+                                </a>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <p className="text-xs text-muted-foreground">No matches found</p>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                </>
+              )}
 
-            {/* Plagiarism Results */}
-            <Card className="shadow-medium">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-lg">Plagiarism Check</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="flex items-end gap-2">
-                  <span className="text-3xl font-bold">
-                    {analyzing ? "--" : plagScore !== null ? plagScore.toFixed(2) : "--"}
-                  </span>
-                  <span className="text-muted-foreground mb-1">%</span>
-                </div>
-                <div className="space-y-2">
-                  <p className="text-sm text-muted-foreground">Matching sources</p>
-                  {analyzing ? (
-                    <p className="text-xs text-muted-foreground">Analyzing...</p>
-                  ) : plagUrls.length ? (
-                    <ul className="list-disc pl-4 space-y-1 text-xs break-all">
-                      {plagUrls.map((u, idx) => (
-                        <li key={`${u}-${idx}`}>
-                          <a
-                            href={u}
-                            target="_blank"
-                            rel="noreferrer noopener"
-                            className="text-primary hover:underline"
-                          >
-                            {u}
-                          </a>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p className="text-xs text-muted-foreground">No matches found</p>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card className="shadow-medium">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-lg">Quick Tips</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3 text-sm text-muted-foreground">
-                <div className="flex gap-2">
-                  <div className="w-6 h-6 rounded-full gradient-primary flex items-center justify-center text-primary-foreground text-xs font-bold flex-shrink-0">
-                    1
+              {/* Quick Tips - Always show */}
+              <Card className="shadow-medium">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-lg">Quick Tips</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3 text-sm text-muted-foreground">
+                  <div className="flex gap-2">
+                    <div className="w-6 h-6 rounded-full gradient-primary flex items-center justify-center text-primary-foreground text-xs font-bold flex-shrink-0">
+                      1
+                    </div>
+                    <p>Paste your text in the input area to get started</p>
                   </div>
-                  <p>Paste your text in the input area to get started</p>
-                </div>
-                <div className="flex gap-2">
-                  <div className="w-6 h-6 rounded-full gradient-primary flex items-center justify-center text-primary-foreground text-xs font-bold flex-shrink-0">
-                    2
+                  <div className="flex gap-2">
+                    <div className="w-6 h-6 rounded-full gradient-primary flex items-center justify-center text-primary-foreground text-xs font-bold flex-shrink-0">
+                      2
+                    </div>
+                    <p>Select analysis type: AI Detection or Plagiarism Check</p>
                   </div>
-                  <p>Click "Analyze Text" to detect AI-generated content</p>
-                </div>
-                <div className="flex gap-2">
-                  <div className="w-6 h-6 rounded-full gradient-primary flex items-center justify-center text-primary-foreground text-xs font-bold flex-shrink-0">
-                    3
+                  <div className="flex gap-2">
+                    <div className="w-6 h-6 rounded-full gradient-primary flex items-center justify-center text-primary-foreground text-xs font-bold flex-shrink-0">
+                      3
+                    </div>
+                    <p>Click "Analyze Text" to get results</p>
                   </div>
-                  <p>Use "Rewrite" to make the text sound more natural</p>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
+                  <div className="flex gap-2">
+                    <div className="w-6 h-6 rounded-full gradient-primary flex items-center justify-center text-primary-foreground text-xs font-bold flex-shrink-0">
+                      4
+                    </div>
+                    <p>Use "Rewrite" to make the text sound more natural</p>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
           )}
         </div>
       </main>

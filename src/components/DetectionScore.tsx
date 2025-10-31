@@ -5,9 +5,10 @@ import { AlertCircle, CheckCircle, AlertTriangle } from "lucide-react";
 interface DetectionScoreProps {
   score: number;
   analyzing?: boolean;
+  label?: string | null;
 }
 
-export const DetectionScore = ({ score, analyzing = false }: DetectionScoreProps) => {
+export const DetectionScore = ({ score, analyzing = false, label }: DetectionScoreProps) => {
   const getScoreColor = (score: number) => {
     if (score < 30) return "text-success";
     if (score < 70) return "text-warning";
@@ -32,6 +33,9 @@ export const DetectionScore = ({ score, analyzing = false }: DetectionScoreProps
     return "bg-destructive";
   };
 
+  // Use backend label if provided, otherwise fall back to calculated label
+  const displayLabel = label || getScoreLabel(score);
+
   return (
     <Card className="shadow-medium">
       <CardHeader className="pb-3">
@@ -55,7 +59,7 @@ export const DetectionScore = ({ score, analyzing = false }: DetectionScoreProps
             indicatorClassName={getProgressColor(score)}
           />
           <p className="text-sm font-medium text-muted-foreground">
-            {analyzing ? "Analyzing content..." : getScoreLabel(score)}
+            {analyzing ? "Analyzing content..." : displayLabel}
           </p>
         </div>
 
