@@ -107,3 +107,14 @@ export async function logout(): Promise<void> {
   accessToken = null;
   await apiFetch("/auth/logout", { method: "POST" }, false);
 }
+
+export async function googleAuth(credential: string): Promise<User> {
+  const res = await apiFetch("/auth/google", {
+    method: "POST",
+    body: JSON.stringify({ credential }),
+  });
+  if (!res.ok) throw new Error((await res.text()) || "Google auth failed");
+  const data: AuthResponse = await res.json();
+  accessToken = data.accessToken;
+  return data.user;
+}

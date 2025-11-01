@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { User } from "@/lib/auth";
-import { login as apiLogin, register as apiRegister, me as apiMe, refresh as apiRefresh, logout as apiLogout, clearAccessToken } from "@/lib/auth";
+import { login as apiLogin, register as apiRegister, me as apiMe, refresh as apiRefresh, logout as apiLogout, clearAccessToken, googleAuth as apiGoogleAuth } from "@/lib/auth";
 
 type Status = "idle" | "loading" | "authenticated" | "unauthenticated";
 
@@ -10,6 +10,7 @@ interface AuthContextValue {
   initializing: boolean;
   signIn: (payload: { email: string; password: string }) => Promise<User>;
   signUp: (payload: { name: string; email: string; password: string }) => Promise<User>;
+  signInUsingGoogle: (credential: string) => Promise<User>;
   signOut: () => Promise<void>;
   refreshUser: () => Promise<User | null>;
 }
@@ -61,6 +62,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return u;
   }, []);
 
+  const signInUsingGoogle = useCallback(async (credential: string) => {
+    setStatus("loading");
+    const u = await apiGoogleAuth(credential);
+    setUser(u);
+    setStatus("authenticated");
+    return u;
+  }, []);
+
   const signOut = useCallback(async () => {
     setStatus("loading");
     await apiLogout();
@@ -85,8 +94,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const value = useMemo<AuthContextValue>(
-    () => ({ user, status, initializing, signIn, signUp, signOut, refreshUser }),
-    [user, status, initializing, signIn, signUp, signOut, refreshUser]
+    () => ({ user, status, initializing, signIn, signUp, signInUsingGoogle, signOut, refreshUser }),
+    [user, status, initializing, signIn, signUp, signInUsingGoogle, signOut, refreshUser]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

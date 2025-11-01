@@ -3,6 +3,7 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Link, useLocation, useNavigate } from "react-router-dom";
+import { GoogleLogin, CredentialResponse } from "@react-oauth/google";
 import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -19,7 +20,7 @@ const schema = z.object({
 type FormValues = z.infer<typeof schema>;
 
 export default function SignUp() {
-  const { user, signUp, status, initializing } = useAuth();
+  const { user, signUp, signInUsingGoogle, status, initializing } = useAuth();
   const nav = useNavigate();
   const loc = useLocation();
   const { toast } = useToast();
@@ -35,6 +36,24 @@ export default function SignUp() {
   useEffect(() => {
     if (user) nav(destination, { replace: true });
   }, [user, destination, nav]);
+
+  const handleGoogleSuccess = async (credentialResponse: CredentialResponse) => {
+    if (!credentialResponse.credential) {
+      toast({ title: "Google sign up failed", description: "No credential received", variant: "destructive" });
+      return;
+    }
+    
+    try {
+      await signInUsingGoogle(credentialResponse.credential);
+      nav(destination, { replace: true });
+    } catch (e: any) {
+      toast({ title: "Google sign up failed", description: e?.message || "Unable to sign up with Google", variant: "destructive" });
+    }
+  };
+
+  const handleGoogleError = () => {
+    toast({ title: "Google sign up failed", description: "Unable to authenticate with Google", variant: "destructive" });
+  };
 
   async function onSubmit(values: FormValues) {
     try {
@@ -104,6 +123,24 @@ export default function SignUp() {
               </Button>
             </form>
           </Form>
+          
+          <div className="relative mt-4">
+            <div className="absolute inset-0 flex items-center">
+              <span className="w-full border-t" />
+            </div>
+            <div className="relative flex justify-center text-xs uppercase">
+              <span className="bg-background px-2 text-muted-foreground">Or continue with</span>
+            </div>
+          </div>
+
+          <div className="mt-4">
+            <GoogleLogin
+              onSuccess={handleGoogleSuccess}
+              onError={handleGoogleError}
+              useOneTap
+              width="100%"
+            />
+          </div>
         </CardContent>
         <CardFooter className="text-sm text-muted-foreground">
           <span>Already have an account?&nbsp;</span>

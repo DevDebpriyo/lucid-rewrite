@@ -3,7 +3,8 @@
 .env.*
 !.env.example
 
-
+# md files
+*.md
 
 # Logs
 logs
