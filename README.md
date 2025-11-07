@@ -176,3 +176,25 @@ You can customize the repository links, add your actual deployment URL, and incl
 
 ```
 
+
+## API Keys (Dashboard)
+
+The app includes an API Keys page for creating and managing keys that can call the public AI endpoints.
+
+- Create/List/Revoke at `/api-keys` (requires login)
+- Keys are shown only once on creation. Store securely.
+- Public endpoints expect your key via header `x-api-key: <key>` (or `Authorization: Bearer <key>`)
+
+Environment
+- Set VITE_API_URL to your backend base URL (e.g., http://localhost:5000)
+
+Example usage (curl):
+
+curl -X POST $BASE_URL/v1/model/rephrase \
+   -H "Content-Type: application/json" \
+   -H "x-api-key: sk_test_AbC123def456.XYZ..." \
+   -d '{"text":"Hello"}'
+
+Rate limit headers: X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset.
+Errors may include: 401 invalid_api_key, 403 insufficient_scope, 429 rate_limit_exceeded, 5xx inference_failed/api_key_auth_error.
+

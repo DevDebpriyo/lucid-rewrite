@@ -53,6 +53,9 @@ export const Header = () => {
                   <Link to="/profile">Profile</Link>
                 </DropdownMenuItem>
                 <DropdownMenuItem asChild>
+                  <Link to="/api-keys">API Keys</Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
                   <Link to="/features">Home</Link>
                 </DropdownMenuItem>
                 <DropdownMenuItem
