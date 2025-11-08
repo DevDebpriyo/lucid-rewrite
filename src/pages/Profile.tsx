@@ -6,6 +6,9 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/context/AuthContext";
+import { useQuery } from "@tanstack/react-query";
+import { getUsage } from "@/lib/usage";
+import { UsageBar } from "@/components/UsageBar";
 import { User as UserIcon, Mail, Lock, Shield, CreditCard, LogOut, LayoutDashboard, DollarSign, CheckCircle2 } from "lucide-react";
 import { useEffect, useMemo } from "react";
 import { useToast } from "@/components/ui/use-toast";
@@ -120,6 +123,14 @@ export default function Profile() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Fetch usage/quota
+  const usageQuery = useQuery({
+    queryKey: ["usage"],
+    queryFn: () => getUsage(),
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
+  });
+
   // Dev-only: log the raw user payload to help diagnose mapping issues
   if (import.meta.env.MODE !== "production") {
     // eslint-disable-next-line no-console
@@ -205,7 +216,17 @@ export default function Profile() {
             <Card className="shadow-sm">
               <CardHeader>
                 <CardTitle className="text-2xl">Account</CardTitle>
-                <CardDescription>Manage your profile, security, and subscription settings</CardDescription>
+                <CardDescription>Manage your profile, usage, security, and subscription settings</CardDescription>
+                {usageQuery.data && (
+                  <div className="mt-4">
+                    <UsageBar
+                      used={usageQuery.data.used}
+                      limit={usageQuery.data.limit}
+                      plan={usageQuery.data.plan}
+                      resetsAt={usageQuery.data.resetsAt}
+                    />
+                  </div>
+                )}
               </CardHeader>
               <Separator />
               <CardContent className="pt-6">

@@ -191,7 +191,9 @@ export default function ApiKeys() {
       const body = await res.json().catch(() => ({}));
       const result = { ok: res.ok, status: res.status, body, rate } as const;
       setTryResult(result as any);
-      if (!res.ok) {
+      if (res.status === 402) {
+        toast.error("Quota exceeded. Upgrade to continue.");
+      } else if (!res.ok) {
         if (res.status === 401) toast.error("Invalid or revoked API key.");
         else if (res.status === 403) toast.error("Insufficient scope for this endpoint.");
         else if (res.status === 429) toast.error("Rate limit exceeded. Check reset header and retry later.");

@@ -1,4 +1,5 @@
 import { useMemo, useState, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
 import { Header } from "@/components/Header";
 import { Footer } from "@/components/Footer";
@@ -12,6 +13,9 @@ import { Sparkles, Copy, Download, RefreshCw, Loader2, X } from "lucide-react";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
+import { authedJsonFetch } from "@/lib/api";
+import { getUsage, updateUsage } from "@/lib/usage";
+import { UsageBar } from "@/components/UsageBar";
 
 // Service base URLs (prod-ready via env) and sensible dev fallbacks via Vite proxies
 const isDev = import.meta.env.DEV;
@@ -75,6 +79,14 @@ const Dashboard = () => {
   const [loadingStep, setLoadingStep] = useState<string>("");
   const [analysisType, setAnalysisType] = useState<"ai-score" | "plagiarism">("ai-score");
   const [abortController, setAbortController] = useState<AbortController | null>(null);
+
+  // Usage (quota) info
+  const usageQuery = useQuery({
+    queryKey: ["usage"],
+    queryFn: () => getUsage(),
+    staleTime: 10_000,
+    refetchOnWindowFocus: false,
+  });
 
   // Handle mode parameter from URL
   useEffect(() => {
@@ -149,6 +161,26 @@ const Dashboard = () => {
     return results;
   };
 
+  // Check if user has enough quota for the operation
+  const checkQuotaAvailable = (charactersToUse: number): boolean => {
+    const usage = usageQuery.data;
+    if (!usage) {
+      // If we don't have usage data yet, allow the operation
+      // The backend will handle the check
+      return true;
+    }
+    
+    const remaining = usage.remaining;
+    if (charactersToUse > remaining) {
+      toast.error(
+        `Insufficient quota. You need ${charactersToUse} characters but only have ${remaining} remaining. Please upgrade to continue.`
+      );
+      return false;
+    }
+    
+    return true;
+  };
+
   const handleAnalyze = async () => {
     // choose the text to analyze based on active tab
     const textToAnalyze =
@@ -156,6 +188,11 @@ const Dashboard = () => {
 
     if (!textToAnalyze.trim()) {
       toast.error("Please enter some text to analyze");
+      return;
+    }
+
+    // Check if user has enough quota before proceeding
+    if (!checkQuotaAvailable(textToAnalyze.length)) {
       return;
     }
 
@@ -188,11 +225,8 @@ const Dashboard = () => {
     try {
       if (analysisType === "ai-score") {
         // Call AI detection API only
-        const aiEndpoint = buildModelUrl("/model/ai-score");
-        const res = await fetch(aiEndpoint, {
+        const res = await authedJsonFetch("/model/ai-score", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
           body: JSON.stringify({ text: textToAnalyze }),
           signal: controller.signal,
         });
@@ -204,6 +238,9 @@ const Dashboard = () => {
           // ignore
         }
 
+        if (res.status === 402 || json?.error === "insufficient_quota") {
+          throw new Error(json?.error || "Free usage limit reached. Please upgrade to continue.");
+        }
         if (res.status === 429) {
           const msg = json?.error || "Too many requests. Please try again in a few minutes.";
           throw new Error(msg);
@@ -250,14 +287,15 @@ const Dashboard = () => {
         setPlagScore(null);
         setPlagUrls([]);
         
+        // Update character usage
+        await updateUsage(textToAnalyze.length);
+        
         toast.success("AI analysis complete!");
+        usageQuery.refetch();
       } else {
         // Call plagiarism API only
-        const plagEndpoint = buildModelUrl("/model/plagiarism-check");
-        const res = await fetch(plagEndpoint, {
+        const res = await authedJsonFetch("/model/plagiarism-check", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
           body: JSON.stringify({ text: textToAnalyze }),
           signal: controller.signal,
         });
@@ -269,6 +307,9 @@ const Dashboard = () => {
           // ignore
         }
 
+        if (res.status === 402 || json?.error === "insufficient_quota") {
+          throw new Error(json?.error || "Free usage limit reached. Please upgrade to continue.");
+        }
         if (res.status === 429) {
           const msg = json?.error || "Too many requests. Please try again in a few minutes.";
           throw new Error(msg);
@@ -306,7 +347,11 @@ const Dashboard = () => {
         setAiLabel(null);
         setAiComponents(null);
         
+        // Update character usage
+        await updateUsage(textToAnalyze.length);
+        
         toast.success("Plagiarism check complete!");
+        usageQuery.refetch();
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unexpected error during analysis";
@@ -335,6 +380,11 @@ const Dashboard = () => {
       return;
     }
 
+    // Check if user has enough quota before proceeding
+    if (!checkQuotaAvailable(inputText.length)) {
+      return;
+    }
+
     const controller = new AbortController();
     setAbortController(controller);
 
@@ -354,11 +404,8 @@ const Dashboard = () => {
     const cleanup = simulateProgress(progressSteps);
     
     try {
-      const endpoint = buildModelUrl("/model/tone-rewrite");
-      const res = await fetch(endpoint, {
+      const res = await authedJsonFetch("/model/tone-rewrite", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
         body: JSON.stringify({ text: inputText, tone }),
         signal: controller.signal,
       });
@@ -370,6 +417,9 @@ const Dashboard = () => {
         // ignore
       }
 
+      if (res.status === 402 || json?.error === "insufficient_quota") {
+        throw new Error(json?.error || "Free usage limit reached. Please upgrade to continue.");
+      }
       if (res.status === 429) {
         const msg = json?.error || "Too many requests. Please try again in a few minutes.";
         throw new Error(msg);
@@ -414,7 +464,12 @@ const Dashboard = () => {
 
       setRewrittenText(rewritten);
       setActiveTab("rewrite");
+      
+      // Update character usage
+      await updateUsage(inputText.length);
+      
       toast.success("Text rewritten successfully!");
+      usageQuery.refetch();
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unexpected error during rewrite";
       // Don't show error if user cancelled
@@ -439,6 +494,11 @@ const Dashboard = () => {
   const handleRephrase = async () => {
     if (!inputText.trim()) {
       toast.error("Please enter some text to rephrase");
+      return;
+    }
+
+    // Check if user has enough quota before proceeding
+    if (!checkQuotaAvailable(inputText.length)) {
       return;
     }
 
@@ -470,12 +530,15 @@ const Dashboard = () => {
     try {
       if (rephraseMode === "advanced") {
   // Fetch per-sentence options
-  const res = await fetch(buildModelUrl("/model/rephrase-options"), {
+  const res = await authedJsonFetch("/model/rephrase-options", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ text: inputText }),
           signal: controller.signal,
         });
+        if (res.status === 402) {
+          const text = await res.text().catch(() => "");
+          throw new Error(text || "Free usage limit reached. Please upgrade to continue.");
+        }
         if (!res.ok) {
           const text = await res.text().catch(() => "");
           console.error("Rephrase Options API failed:", res.status, text);
@@ -513,15 +576,23 @@ const Dashboard = () => {
         setAdvSelection({});
         setRephrasedText("");
         setActiveTab("rephrase");
+        
+        // Update character usage
+        await updateUsage(inputText.length);
+        
         toast.success("Options fetched. Select one per sentence.");
+        usageQuery.refetch();
       } else {
   // Simple mode
-  const res = await fetch(buildModelUrl("/model/rephrase"), {
+  const res = await authedJsonFetch("/model/rephrase", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ text: inputText }),
           signal: controller.signal,
         });
+        if (res.status === 402) {
+          const text = await res.text().catch(() => "");
+          throw new Error(text || "Free usage limit reached. Please upgrade to continue.");
+        }
         if (!res.ok) {
           const text = await res.text().catch(() => "");
           console.error("Rephrase API failed:", res.status, text);
@@ -542,7 +613,12 @@ const Dashboard = () => {
           throw new Error("Unexpected rephrase response format");
         }
         setActiveTab("rephrase");
+        
+        // Update character usage
+        await updateUsage(inputText.length);
+        
         toast.success("Text rephrased successfully!");
+        usageQuery.refetch();
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unexpected error during rephrase";
@@ -701,6 +777,11 @@ const Dashboard = () => {
           <p className="text-muted-foreground">
             Detect AI-generated content and rewrite it to sound more natural
           </p>
+          {usageQuery.data ? (
+            <div className="mt-4">
+              <UsageBar used={usageQuery.data.used} limit={usageQuery.data.limit} plan={usageQuery.data.plan} resetsAt={usageQuery.data.resetsAt} />
+            </div>
+          ) : null}
         </div>
 
         {/* Centralized Mode Tabs */}

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Header } from "@/components/Header";
 import { Footer } from "@/components/Footer";
 import { Button } from "@/components/ui/button";
@@ -8,14 +9,27 @@ import { listProducts, startCheckout } from "@/lib/payments";
 import { useToast } from "@/components/ui/use-toast";
 
 const Pricing = () => {
+  const navigate = useNavigate();
   const plans = [
+    {
+      name: "Free Trial",
+      price: "$0",
+      billing: "month" as const,
+      description: "Best for trying out AuthentiText",
+      features: [
+        "50,000 characters",
+        "All rewriting tones",
+        "Export to PDF/Word",
+      ],
+      cta: "Get Started",
+      highlighted: false,
+      type: "free" as const,},
     {
       name: "Monthly",
       price: "$29",
       billing: "month" as const,
       description: "Best for flexible, pay-as-you-go access",
       features: [
-        "50,000 words per month",
         "Advanced AI detection",
         "All rewriting tones",
         "Priority support",
@@ -32,7 +46,6 @@ const Pricing = () => {
       billing: "year" as const,
       description: "Save more with an annual plan",
       features: [
-        "50,000 words per month",
         "Advanced AI detection",
         "All rewriting tones",
         "Priority support",
@@ -82,6 +95,12 @@ const Pricing = () => {
   }, [products]);
 
   async function handlePlanClick(plan: (typeof plans)[number]) {
+    // Free Trial: redirect to features page
+    if (plan.type === "free") {
+      navigate("/features");
+      return;
+    }
+
     // Find product by name (case-insensitive). Customize if your backend uses different names.
     const key = plan.name.toLowerCase();
     const product = productByName.get(key) || null;
@@ -128,7 +147,7 @@ const Pricing = () => {
           </div>
 
           <div className="flex justify-center">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-4xl w-full">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-4xl w-full">
               {plans.map((plan) => (
                 <div className="flex justify-center">
                   <Card

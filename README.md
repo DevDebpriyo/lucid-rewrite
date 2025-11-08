@@ -198,3 +198,15 @@ curl -X POST $BASE_URL/v1/model/rephrase \
 Rate limit headers: X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset.
 Errors may include: 401 invalid_api_key, 403 insufficient_scope, 429 rate_limit_exceeded, 5xx inference_failed/api_key_auth_error.
 
+## Free plan quota
+
+- Default free plan quota: 50,000 characters per monthly period (example).
+- Backend should enforce quota per user and/or per API key, and expose:
+   - Session endpoint: `GET /api/usage` -> `{ plan, limit, used, remaining, period, resetsAt }`.
+   - Response headers for public endpoints (optional): `X-Quota-Limit`, `X-Quota-Remaining`, `X-Quota-Reset`.
+- Error pattern when exceeded: HTTP 402 with `{ error: "insufficient_quota" }`.
+
+Frontend:
+- Shows a usage bar on the dashboard reflecting used vs limit and a reset date, with an Upgrade CTA.
+- Detects 402/insufficient_quota and prompts users to upgrade.
+
