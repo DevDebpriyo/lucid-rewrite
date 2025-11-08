@@ -16,7 +16,7 @@ import { toast } from "sonner";
 import type { ApiKeyEnv, ListedKey, CreateKeyResponse } from "@/lib/apiKeys";
 import { listKeys, createKey, revokeKey, callRephraseWithApiKey } from "@/lib/apiKeys";
 
-const API_BASE = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") || "";
+const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, "") || "";
 
 function formatKeyPreview(_env: ApiKeyEnv, _keyId: string) {
   // Per request: do not reveal any part of the key or id. Show only the prefix then mask.
@@ -166,12 +166,12 @@ export default function ApiKeys() {
     try {
       const path =
         tryAction === "rephrase"
-          ? "/model/rephrase"
+          ? "/v1/model/rephrase"
           : tryAction === "rewrite"
-          ? "/model/tone-rewrite"
+          ? "/v1/model/tone-rewrite"
           : tryAction === "ai-score"
-          ? "/model/ai-score"
-          : "/model/plagiarism-check";
+          ? "/v1/model/ai-score"
+          : "/v1/model/plagiarism-check";
 
       const res = await fetch(`${API_BASE}${path}`, {
         method: "POST",
@@ -179,6 +179,7 @@ export default function ApiKeys() {
           "Content-Type": "application/json",
           "x-api-key": tryKey.trim(),
         },
+        credentials: "include", // Include session cookies for authentication
         body: JSON.stringify(
           tryAction === "rewrite" ? { text: tryText, tone: "formal" } : { text: tryText }
         ),
@@ -210,7 +211,7 @@ export default function ApiKeys() {
 
   const snippetCurl = useMemo(() => {
     const base = API_BASE || "$BASE_URL";
-    return "curl -X POST " + base + "/v1/model/rephrase \\\n+  -H \"Content-Type: application/json\" \\\n+  -H \"x-api-key: sk_test_AbC123def456.XYZ...\" \\\n+  -d '{\\\"text\\\":\\\"Hello\\\"}'";
+    return "curl -X POST " + base + "/model/rephrase \\\n  -H \"Content-Type: application/json\" \\\n  -H \"x-api-key: sk_test_AbC123def456.XYZ...\" \\\n  -d '{\"text\":\"Hello\"}'";
   }, []);
 
   const snippetFetch = useMemo(() => {
@@ -219,7 +220,7 @@ export default function ApiKeys() {
       "const BASE_URL = '" + base + "';\n" +
       "// Do NOT embed user keys in public client bundles. Store on server/env.\n" +
       "async function rephrase(text) {\n" +
-      "  const res = await fetch(`${BASE_URL}/v1/model/rephrase`, {\n" +
+      "  const res = await fetch(`${BASE_URL}/model/rephrase`, {\n" +
       "    method: 'POST',\n" +
       "    headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.MY_API_KEY },\n" +
       "    body: JSON.stringify({ text })\n" +
